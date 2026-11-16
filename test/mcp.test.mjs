@@ -9,7 +9,7 @@ test('initialize negotiates protocol and lists tools', async () => {
   assert.equal(init.result.protocolVersion, '2025-03-26');
   assert.ok(init.result.capabilities.tools);
   const list = await (await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).json();
-  assert.deepEqual(list.result.tools.map(t => t.name), ['calls_by_user', 'opportunities_generated', 'sms_to_qualified', 'dials_to_qualified', 'accounting_summary', 'workflow_stats', 'ask_insights']);
+  assert.deepEqual(list.result.tools.map(t => t.name), ['activity_volume', 'calls_by_user', 'opportunities_generated', 'sms_to_qualified', 'dials_to_qualified', 'accounting_summary', 'workflow_stats', 'ask_insights']);
 });
 
 test('notifications return 202 with no body', async () => {
@@ -44,4 +44,14 @@ test('MCP_KEY is enforced when set', async () => {
   assert.equal((await rpc({ jsonrpc: '2.0', id: 8, method: 'ping' })).status, 401);
   assert.equal((await rpc({ jsonrpc: '2.0', id: 8, method: 'ping' }, { authorization: `Bearer ${'k'.repeat(32)}` })).status, 200);
   delete process.env.MCP_KEY;
+});
+
+test('activity tool accepts one Pacific day and rejects invalid dates', async () => {
+  const request = arguments_ => handleRpc({ jsonrpc: '2.0', id: 9, method: 'tools/call',
+    params: { name: 'activity_volume', arguments: arguments_ } });
+  const { result } = await request({ from: '2026-11-01', to: '2026-11-01' });
+  assert.equal(result.isError, false);
+  assert.equal(result.structuredContent.range.from, '2026-11-01');
+  assert.equal(result.structuredContent.sample, true);
+  assert.equal((await request({ from: '2026-02-30', to: '2026-03-01' })).result.isError, true);
 });

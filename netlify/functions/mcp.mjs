@@ -1,6 +1,7 @@
 // POST /mcp  Model Context Protocol server (Streamable HTTP, stateless, JSON responses).
 // Connect from Claude or any MCP client with: URL https://<site>/mcp, header Authorization: Bearer <MCP_KEY>.
 import { buildReport, paramsFrom } from './lib/report.mjs';
+import { loadActivity } from './lib/activity.mjs';
 import { askGroq } from './lib/groq.mjs';
 import { loadWorkflows } from './lib/sources.mjs';
 import { mcpAuthorized, json } from './lib/auth.mjs';
@@ -16,6 +17,9 @@ const range = {
 const ro = { readOnlyHint: true, openWorldHint: false };
 
 export const TOOLS = [
+  { name: 'activity_volume', title: 'Outbound calls and SMS', annotations: ro,
+    description: 'Direct Twilio outbound phone calls, calls over 60 seconds, outbound SMS sent and SMS deliveries by Pacific date range. Rep filters use dedicated Twilio From numbers.',
+    inputSchema: { type: 'object', properties: range } },
   { name: 'calls_by_user', title: 'Calls made by user', annotations: ro,
     description: 'Dials, connected calls, connect rate, calls over 60s, talk minutes, unique contacts and hot/warm follow ups per rep for a date range, plus a per-period series.',
     inputSchema: { type: 'object', properties: range } },
@@ -47,6 +51,7 @@ const pick = (r, group) => {
 };
 
 export async function callTool(name, args = {}) {
+  if (name === 'activity_volume') return loadActivity(args);
   if (name === 'workflow_stats') return loadWorkflows(args.days);
   const r = await buildReport(paramsFrom(args));
   const meta = { range: r.range, sources: r.sources, definitions: r.definitions };

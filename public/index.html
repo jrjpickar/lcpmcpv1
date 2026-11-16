@@ -155,6 +155,7 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
 .brain{position:relative;height:min(78vh,820px);min-height:520px;border-radius:var(--r);border:1px solid var(--line);background:radial-gradient(900px 520px at 50% 40%,#1b2a4d 0%,#0e1628 70%);overflow:hidden}
 .brain canvas{cursor:grab}.brain canvas:active{cursor:grabbing}
 .brain-top{position:absolute;left:16px;top:14px;z-index:3;pointer-events:none}
+.brain-activity{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;align-items:center}.brain-activity section{flex:1 1 150px;border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:10px 14px}.brain-activity strong{display:block;font-size:24px;font-variant-numeric:tabular-nums}.brain-activity .meta{flex:1 1 100%;margin:0}
 .brain-top h2{margin:0;font-size:15px;font-weight:650}.brain-top .meta{margin-top:2px}
 .b3-labels{position:absolute;inset:0;pointer-events:none;z-index:2}
 .b3-label{position:absolute;left:0;top:0;pointer-events:auto;cursor:pointer;background:rgba(10,16,30,.82);border:1px solid #2a3756;border-radius:9px;padding:4px 9px;font-size:11.5px;white-space:nowrap;backdrop-filter:blur(4px);transition:border-color .15s,background .15s;display:flex;flex-direction:column;line-height:1.3}
@@ -192,15 +193,19 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
     </div>
   </header>
   <nav class="tabs" role="tablist">
-    <button role="tab" data-v="brain" aria-selected="false" id="brainTab" hidden>Brain 3D</button>
+    <button role="tab" data-v="brain" aria-selected="false" id="brainTab">Brain 3D</button>
     <button role="tab" data-v="sales" aria-selected="true">Sales</button>
     <button role="tab" data-v="workflows" aria-selected="false">Workflows</button>
     <button role="tab" data-v="accounting" aria-selected="false">Accounting</button>
   </nav>
   <div id="err"></div>
 
-  <!-- BRAIN 3D (sandbox only) -->
-  <div class="view" id="v-brain"><div class="brain" id="brain3d"><div class="brain-top"><h2>LCP Brain</h2><div class="meta" id="brainMeta"></div></div><div class="brain-hint">Drag to rotate · scroll to zoom · click a building</div></div></div>
+  <!-- BRAIN 3D -->
+  <div class="view" id="v-brain"><div class="brain-activity" aria-label="Outbound activity" aria-busy="true">
+    <section>Outbound calls<strong id="brainCalls">—</strong><small id="brainCallDetail"></small></section>
+    <section>Outbound SMS<strong id="brainSms">—</strong><small id="brainSmsDetail"></small></section>
+    <div class="meta" id="brainActivityMeta" aria-live="polite"></div>
+  </div><div class="brain" id="brain3d"><div class="brain-top"><h2>LCP Brain</h2><div class="meta" id="brainMeta"></div></div><div class="brain-hint">Drag to rotate · scroll to zoom · click a building</div></div></div>
 
   <!-- SALES -->
   <div class="view on" id="v-sales">
@@ -256,7 +261,9 @@ var STATIC = !!window.LCP_STATIC;
 var key = (location.hash.match(/key=([^&]+)/) || [])[1] || ssGet('lcpKey') || '';
 if (key) ssSet('lcpKey', key);
 var state = { sig: '', view: 'sales', preset: '30d', from: '', to: '', rep: '', locBy: 'city', sort: { k: 'dials', dir: -1 } };
-var sampleData = null, last = null, wf = null, wfDays = null, brainReady = false, brainLoading = false;
+var sampleData = null, last = null, wf = null, brainReady = false, brainLoading = false, brainReport = null;
+var twilioReps = null;
+var reads = new Map(), reportGeneration = 0, workflowGeneration = 0, activityGeneration = 0, filterTimer;
 var SLOTS = ['--s1','--s2','--s3','--s4','--s5','--s6','--s7','--s8'], repColor = {};
 var OUT_COLOR = { noanswer: 'var(--s1)', notinterested: 'var(--s2)', followup: 'var(--s3)', bad: 'var(--s4)', other: 'var(--s7)' };
 var $ = function (id) { return document.getElementById(id); };
@@ -272,42 +279,75 @@ function col(rep){ return repColor[rep] ? 'var(' + repColor[rep] + ')' : 'var(--
 function assignColors(reps){ reps.forEach(function(r){ var u = Object.keys(repColor).length; if (!repColor[r] && u < 8 && !/^(Unknown|Workflow|Automation|Unassigned)$/.test(r)) repColor[r] = SLOTS[u]; }); }
 function params(){ var p = state.from && state.to ? { from: state.from, to: state.to } : { preset: state.preset }; if (state.rep) p.rep = state.rep; return p; }
 function api(path){ return fetch(path, { headers: { 'x-lcp-key': key } }).then(function(res){ return res.json().then(function(j){ if (!res.ok) throw new Error(j.error || ('HTTP ' + res.status)); return j; }); }); }
+function cachedApi(path){
+  var hit = reads.get(path);
+  if (hit && hit.until > Date.now()) return hit.result;
+  var entry = { until: Date.now() + 120000 };
+  entry.result = api(path).catch(function(e){ if (reads.get(path) === entry) reads.delete(path); throw e; });
+  reads.set(path, entry);
+  if (reads.size > 24) reads.delete(reads.keys().next().value);
+  return entry.result;
+}
 function showErr(e){ document.body.classList.remove('loading'); $('err').innerHTML = '<div class="err">Could not load: ' + esc(e.message) + (e.message === 'Unauthorized' ? '. Open from GHL or add #key=YOUR_KEY to the URL.' : '') + '</div>'; }
 
 function load(){
+  clearTimeout(filterTimer);
+  var generation = ++reportGeneration, options = params();
   document.body.classList.add('loading');
+  if (state.view === 'brain') loadBrainActivity();
   if (STATIC) {
     sampleData = sampleData || window.LcpSample.generate();
     setTimeout(function(){
-      var r = M.compute(sampleData, Object.assign({}, params(), { lookbackDays: 60, compare: true }));
+      if (generation !== reportGeneration) return;
+      var r = M.compute(sampleData, Object.assign({}, options, { lookbackDays: 60, compare: true }));
       r.sources = { mode: 'sample', dialer: false, ghl: false, ledger: false, groq: false, workflows: false, warnings: [] };
       render(r);
     }, 10);
     return;
   }
-  api('/api/metrics?' + new URLSearchParams(params())).then(render).catch(showErr);
+  var requested = options.from ? options : Object.assign(M.presetRange(options.preset), options);
+  delete requested.preset;
+  cachedApi('/api/metrics?' + new URLSearchParams(requested)).then(function(r){
+    if (generation === reportGeneration) render(r);
+  }).catch(function(e){ if (generation === reportGeneration) showErr(e); });
 }
 function loadWorkflows(){
   var days = Math.min(120, Math.max(7, last ? last.range.days : 30));
-  if (wf && wfDays === days) { renderWorkflows(); return; }
-  wfDays = days;
+  var generation = ++workflowGeneration;
   if (STATIC) { wf = window.LcpSample.workflows(days); renderWorkflows(); return; }
   $('v-workflows').innerHTML = '<div class="notice">Loading workflow stats...</div>';
-  api('/api/workflows?days=' + days).then(function(j){ wf = j; renderWorkflows(); }).catch(function(e){ wf = { configured: false, error: e.message }; renderWorkflows(); });
+  cachedApi('/api/workflows?days=' + days).then(function(j){
+    if (generation !== workflowGeneration || state.view !== 'workflows') return;
+    wf = j; renderWorkflows();
+  }).catch(function(e){
+    if (generation !== workflowGeneration || state.view !== 'workflows') return;
+    wf = { configured: false, error: e.message }; renderWorkflows();
+  });
+}
+
+function renderRepOptions(reps){
+  var names = state.view === 'brain' && twilioReps ? twilioReps.slice() : (reps || []);
+  if (state.rep && !names.includes(state.rep)) names = names.concat(state.rep);
+  $('rep').innerHTML = '<option value="">All reps</option>' + names.map(function(name){
+    return '<option' + (name === state.rep ? ' selected' : '') + '>' + esc(name) + '</option>';
+  }).join('');
 }
 
 function render(r){
-  if (!last && (STATIC || (r.sources && r.sources.mode === 'sample'))) { $('brainTab').hidden = false; if (state.view === 'sales' && !state.touched) { state.view = 'brain'; setTimeout(function(){ setView('brain'); }, 0); } }
+  if (!last && (STATIC || (r.sources && r.sources.mode === 'sample')) && state.view === 'sales' && !state.touched) {
+    setTimeout(function(){ if (!state.touched) setView('brain'); }, 0);
+  }
   last = r; document.body.classList.remove('loading'); $('err').innerHTML = '';
   assignColors(r.reps);
-  $('rep').innerHTML = '<option value="">All reps</option>' + r.reps.map(function(x){ return '<option' + (x === state.rep ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
+  renderRepOptions(r.reps);
   if (!state.from) { $('from').value = r.range.from; $('to').value = r.range.to; }
   var s = r.sources || {}, pill = $('pill');
   if (s.mode === 'sample') { pill.className = 'pill sample'; pill.textContent = 'Sample data'; pill.setAttribute('data-tip', 'Sandbox. No dialer, GHL, Ledger, workflow feed or Groq connection.'); }
   else { var on = ['dialer','ghl','ledger','workflows','groq'].filter(function(k){ return s[k]; }); pill.className = 'pill live'; pill.textContent = 'Live'; pill.setAttribute('data-tip', 'Connected: ' + on.join(', ') + (s.warnings && s.warnings.length ? '\n' + s.warnings.join('\n') : '')); }
-  renderKpis(r); renderInsights(r); renderSignals(r); renderCalls(r); renderOpps(r); renderPath(r, 'sms'); renderPath(r, 'dial'); renderAccounting(r);
+  if (state.view === 'sales') { renderKpis(r); renderInsights(r); renderSignals(r); renderCalls(r); renderOpps(r); renderPath(r, 'sms'); renderPath(r, 'dial'); }
+  if (state.view === 'accounting') renderAccounting(r);
   if (state.view === 'workflows') loadWorkflows();
-  if (state.view === 'brain') showBrain();
+  if (state.view === 'brain') { showBrain(); if (STATIC) showSampleActivity(r); }
   $('footMeta').textContent = r.range.from + ' to ' + r.range.to + ' · ' + r.range.timezone + (r.previous ? ' · changes vs ' + r.previous.range.from + ' to ' + r.previous.range.to : '');
 }
 
@@ -641,9 +681,54 @@ function waterfall(el, steps, net){
   el.innerHTML = svg.join('') + '</svg>';
 }
 
-// ---------- 3D Brain (sandbox only) ----------
+// ---------- 3D Brain ----------
+function activityText(calls, sms, callDetail, smsDetail, note, busy){
+  $('brainCalls').textContent = calls == null ? '—' : n(calls);
+  $('brainSms').textContent = sms == null ? '—' : n(sms);
+  $('brainCallDetail').textContent = callDetail || '';
+  $('brainSmsDetail').textContent = smsDetail || '';
+  $('brainActivityMeta').textContent = note;
+  $('brainCalls').closest('.brain-activity').setAttribute('aria-busy', String(busy));
+}
+function showSampleActivity(r){
+  activityText(r.kpis.dials, r.kpis.smsSent, '', '', 'Sample activity · ' + r.range.from + ' to ' + r.range.to + ' · Pacific', false);
+}
+function loadBrainActivity(){
+  var generation = ++activityGeneration, p = params();
+  if (STATIC) {
+    if (last) showSampleActivity(last);
+    return;
+  }
+  var range = p.from ? p : M.presetRange(p.preset);
+  var query = new URLSearchParams({ from: range.from, to: range.to, rep: p.rep || '' });
+  var label = range.from + ' to ' + range.to + ' · Pacific' + (p.rep ? ' · ' + p.rep : '');
+  activityText(null, null, '', '', 'Loading activity · ' + label, true);
+  cachedApi('/api/activity?' + query).then(function(a){
+    if (generation !== activityGeneration || state.view !== 'brain') return;
+    if (a.sample) { activityText(a.totals.calls, a.totals.sms, '', '', 'Sample activity · ' + label, false); return; }
+    twilioReps = a.reps;
+    renderRepOptions(last && last.reps);
+    var t = a.totals, c = a.coverage;
+    var timestamp = new Date(a.fetchedAt).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    var warnings = [c.calls.warning, c.sms.warning].filter(Boolean);
+    var note = label + ' · Twilio read ' + timestamp;
+    if (!a.repAvailable) note += ' · No dedicated Twilio number mapped to this rep';
+    if (warnings.length) note += ' · Partial data · ' + warnings.join(' ');
+    activityText(t.calls, t.sms,
+      t.conversations == null ? '' : n(t.conversations) + ' calls over 60s',
+      t.smsDelivered == null ? '' : n(t.smsDelivered) + ' delivered', note, false);
+  }).catch(function(e){
+    if (generation === activityGeneration && state.view === 'brain') activityText(null, null, '', '', e.message + ' · ' + label, false);
+  });
+}
 function brainModel(r){
-  var t = r.callsByUser.totals, o = r.opportunities, a = r.accounting || {}, w = wf || {}, wo = w.overview || {}, ops = r.ops || (window.LcpSample && window.LcpSample.ops()) || {};
+  var t = r.callsByUser.totals, o = r.opportunities, a = r.accounting || {}, sources = r.sources;
+  var sample = sources.mode === 'sample', days = Math.min(120, Math.max(7, r.range.days));
+  var w = sample && window.LcpSample ? window.LcpSample.workflows(days) : (wf && wf.days === days ? wf : {});
+  var wo = w.overview || {}, ops = r.ops || (sample && window.LcpSample && window.LcpSample.ops()) || {};
+  var health = [['dialer', 'Triple Line'], ['ghl', 'HighLevel'], ['ledger', 'Ledger'], ['workflows', 'Workflows'], ['groq', 'Groq']].map(function(entry){
+    return {name: entry[1], status: sources[entry[0]] ? 'warn' : 'off', detail: sources[entry[0]] ? 'Configured' : 'Disabled'};
+  });
   return {
     groq: !!(r.sources && r.sources.groq), insights: r.insights || [],
     calls: { dials: t.dials, connectRate: t.connectRate, talkMinutes: t.talkMinutes, avgCall: t.avgCallSeconds, topRep: (r.callsByUser.rows[0] || {}).rep },
@@ -651,21 +736,23 @@ function brainModel(r){
     leads: { total: o.total, value: o.value, medianTouches: o.medianTouches, cities: o.byCity.map(function(c){ return { key: c.key, count: c.count }; }) },
     automations: { workflows: wo.totalWorkflows, entered: wo.enrollments, completion: wo.completionRate, skipped: wo.skipped, failed: wo.failed },
     revenue: { fees: a.revenue, net: a.net, pending: a.feesPending, deals: a.dealsPaid, emd: a.emdAtRisk },
-    health: ops.health || { sources: [] }, twilio: ops.twilio || {}
+    health: ops.health || { sources: health }, twilio: ops.twilio || {}
   };
 }
 function showBrain(){
-  if (!last) return;
-  var days = Math.min(120, Math.max(7, last.range.days));
-  if (!wf || wfDays !== days) {
-    wfDays = days;
-    if (STATIC) wf = window.LcpSample.workflows(days);
-    else { api('/api/workflows?days=' + days).then(function(j){ wf = j; showBrain(); }).catch(function(){ wf = {}; showBrain(); }); return; }
+  if (!last || state.view !== 'brain' || brainReport === last) return;
+  $('brainMeta').textContent = (last.sources.mode === 'sample' ? 'Sample data' : 'Sales report · dialer tower uses logged dispositions · Twilio balance unavailable') + ' · ' + last.range.from + ' to ' + last.range.to;
+  if (window.LcpBrain) {
+    try {
+      if (brainReady) window.LcpBrain.update(brainModel(last));
+      else window.LcpBrain.mount($('brain3d'), brainModel(last), { onNavigate: function(v){ state.touched = true; setView(v); } });
+      brainReady = true;
+    } catch (e) {
+      $('brainMeta').textContent = '3D view unavailable on this device.';
+    }
+    brainReport = last;
+    return;
   }
-  $('brainMeta').textContent = 'Sandbox · sample data · ' + last.range.from + ' to ' + last.range.to;
-  var model = brainModel(last);
-  if (brainReady) { window.LcpBrain.update(model); return; }
-  if (window.LcpBrain) { window.LcpBrain.mount($('brain3d'), model, { onNavigate: function(v){ state.touched = true; setView(v); } }); brainReady = true; return; }
   if (brainLoading) return;
   brainLoading = true;
   var s = document.createElement('script'); s.src = 'brain3d.js';
@@ -681,12 +768,12 @@ function setView(v){
   ['brain', 'sales', 'workflows', 'accounting'].forEach(function(x){ $('v-' + x).className = 'view' + (x === v ? ' on' : ''); });
   $('rep').disabled = v !== 'sales' && v !== 'brain';
   if (v === 'workflows') loadWorkflows();
-  if (v === 'brain') showBrain();
+  if (v === 'brain') { loadBrainActivity(); showBrain(); }
   if (last) { if (v === 'accounting') renderAccounting(last); if (v === 'sales') render(last); }
 }
 document.querySelectorAll('nav.tabs button').forEach(function(b){ b.onclick = function(){ state.touched = true; setView(b.dataset.v); }; });
 $('presets').querySelectorAll('button').forEach(function(b){ b.onclick = function(){ state.preset = b.dataset.p; state.from = state.to = ''; $('presets').querySelectorAll('button').forEach(function(x){ x.setAttribute('aria-pressed', x === b); }); load(); }; });
-function dateChange(){ var f = $('from').value, t = $('to').value; if (f && t && f <= t) { state.from = f; state.to = t; $('presets').querySelectorAll('button').forEach(function(x){ x.setAttribute('aria-pressed', 'false'); }); load(); } }
+function dateChange(){ var f = $('from').value, t = $('to').value; if (f && t && f <= t) { state.from = f; state.to = t; $('presets').querySelectorAll('button').forEach(function(x){ x.setAttribute('aria-pressed', 'false'); }); clearTimeout(filterTimer); filterTimer = setTimeout(load, 220); } }
 $('from').onchange = dateChange; $('to').onchange = dateChange;
 $('rep').onchange = function(){ state.rep = this.value; load(); };
 $('locBy').querySelectorAll('button').forEach(function(b){ b.onclick = function(){ state.locBy = b.dataset.l; $('locBy').querySelectorAll('button').forEach(function(x){ x.setAttribute('aria-pressed', x === b); }); renderOpps(last); }; });
@@ -701,7 +788,7 @@ document.addEventListener('mousemove', function(e){
   if (x + tip.offsetWidth > innerWidth - 8) x = e.clientX - tip.offsetWidth - 14; if (y + tip.offsetHeight > innerHeight - 8) y = e.clientY - tip.offsetHeight - 14;
   tip.style.left = x + 'px'; tip.style.top = y + 'px';
 });
-var rt, lastW = innerWidth; addEventListener('resize', function(){ if (innerWidth === lastW) return; lastW = innerWidth; clearTimeout(rt); rt = setTimeout(function(){ if (last) { render(last); if (state.view === 'workflows') renderWorkflows(); } }, 150); });
+var rt, lastW = innerWidth; addEventListener('resize', function(){ if (innerWidth === lastW) return; lastW = innerWidth; clearTimeout(rt); rt = setTimeout(function(){ if (last && state.view !== 'brain' && state.view !== 'workflows') render(last); }, 150); });
 load();
 })();
 </script>

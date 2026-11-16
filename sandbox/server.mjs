@@ -4,6 +4,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 process.env.DATA_MODE = 'sample';
 const routes = {
+  '/api/activity': (await import('../netlify/functions/activity.mjs')).default,
   '/api/metrics': (await import('../netlify/functions/metrics.mjs')).default,
   '/api/ask': (await import('../netlify/functions/ask.mjs')).default,
   '/mcp': (await import('../netlify/functions/mcp.mjs')).default,

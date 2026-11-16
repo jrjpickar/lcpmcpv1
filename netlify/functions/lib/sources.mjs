@@ -14,6 +14,26 @@ const GHL_API = 'https://services.leadconnectorhq.com';
 const env = (name, fallback = '') => process.env[name] || fallback;
 const envInt = (name, fallback) => { const n = Number.parseInt(process.env[name] || '', 10); return Number.isFinite(n) && n > 0 ? n : fallback; };
 const cache = new Map();
+const pending = new Map();
+const reference = new Map();
+
+function cachedReference(key, ttl, load, fetchImpl) {
+  if (fetchImpl !== fetch) return load();
+  const hit = reference.get(key);
+  if (hit?.until > Date.now()) return hit.result;
+  const entry = { until: Date.now() + ttl };
+  entry.result = load().catch(error => {
+    if (reference.get(key) === entry) reference.delete(key);
+    throw error;
+  });
+  reference.set(key, entry);
+  return entry.result;
+}
+
+function pacificMidnight(day) {
+  const standard = Date.parse(day + 'T08:00:00Z');
+  return new Date(Metrics.dayKey(standard - 3600000) === day ? standard - 3600000 : standard).toISOString();
+}
 let sampleData = null;
 
 export function mode() {
@@ -42,9 +62,22 @@ export async function loadData({ from, to, fetchImpl = fetch } = {}) {
   const lookback = envInt('TOUCH_LOOKBACK_DAYS', 60);
   const start = Metrics.shiftDay(from, -lookback);
   const key = `${start}|${to}`;
+  if (fetchImpl !== fetch) return loadLiveData(start, from, to, lookback, fetchImpl);
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < envInt('CACHE_SECONDS', 300) * 1000) return hit.data;
+  if (pending.has(key)) return pending.get(key);
+  const request = loadLiveData(start, from, to, lookback, fetchImpl).then(data => {
+    if (!data.meta.warnings.length) {
+      cache.set(key, { at: Date.now(), data });
+      if (cache.size > 12) cache.delete(cache.keys().next().value);
+    }
+    return data;
+  }).finally(() => pending.delete(key));
+  pending.set(key, request);
+  return request;
+}
 
+async function loadLiveData(start, from, to, lookback, fetchImpl) {
   const warnings = [];
   const safe = async (label, fn, fallback) => { try { return await fn(); } catch (error) { warnings.push(`${label}: ${error.message}`); return fallback; } };
   const users = await safe('GHL users', () => ghlUsers(fetchImpl), {});
@@ -54,15 +87,13 @@ export async function loadData({ from, to, fetchImpl = fetch } = {}) {
     safe('GHL open opportunities', () => ghlOpportunities(null, users, fetchImpl, 'open'), []),
     safe('GHL SMS', () => ghlSms(start, to, users, fetchImpl), []),
     safe('GHL inbound calls', () => ghlInboundCalls(Metrics.shiftDay(to, -Math.min(31, lookback)), to, fetchImpl), []),
-    safe('Ledger', () => ledgerExport(fetchImpl), { deals: [], spend: [], ap: null }),
+    safe('Ledger', () => cachedReference('ledger', 300000, () => ledgerExport(fetchImpl), fetchImpl), { deals: [], spend: [], ap: null }),
   ]);
-  const contacts = await safe('GHL contacts', () => ghlContacts(opportunities, from, fetchImpl), []);
+  const contacts = await safe('GHL contacts', () => ghlContacts(opportunities, from, to, fetchImpl), []);
   const seen = new Set(opportunities.map(o => o.id));
   for (const o of openOpps) if (!seen.has(o.id)) opportunities.push(o); // stage aging needs every open deal, not only recent ones
-  const data = { calls, sms, inboundCalls, contacts, opportunities, deals: ledger.deals, spend: ledger.spend, ap: ledger.ap, meta: { mode: 'live', label: 'LIVE', loadedAt: new Date().toISOString(), from: start, to, warnings } };
-  cache.set(key, { at: Date.now(), data });
-  if (cache.size > 12) cache.delete(cache.keys().next().value);
-  return data;
+  return { calls, sms, inboundCalls, contacts, opportunities, deals: ledger.deals, spend: ledger.spend, ap: ledger.ap,
+    meta: { mode: 'live', label: 'LIVE', loadedAt: new Date().toISOString(), from: start, to, warnings } };
 }
 
 // ---------------- Dialer ----------------
@@ -120,7 +151,11 @@ async function ghl(path, { method = 'GET', body, version = '2021-07-28', fetchIm
   throw new Error(`rate limited on ${path.split('?')[0]}`);
 }
 
-async function ghlUsers(fetchImpl) {
+function ghlUsers(fetchImpl) {
+  return cachedReference('users', 600000, () => fetchGhlUsers(fetchImpl), fetchImpl);
+}
+
+async function fetchGhlUsers(fetchImpl) {
   const payload = await ghl(`/users/?locationId=${encodeURIComponent(env('GHL_LOCATION_ID'))}`, { fetchImpl });
   const map = {};
   for (const u of payload.users || []) map[u.id] = u.name || [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email || u.id;
@@ -140,9 +175,9 @@ export function normalizeOpportunity(o, users = {}, pipelines = {}) {
 
 async function ghlOpportunities(start, users, fetchImpl, status = 'all') {
   const loc = encodeURIComponent(env('GHL_LOCATION_ID'));
-  const pipeRows = (await ghl(`/opportunities/pipelines?locationId=${loc}`, { fetchImpl })).pipelines || [];
-  const pipelines = Object.fromEntries(pipeRows.map(p => [p.id, { name: p.name, stages: Object.fromEntries((p.stages || []).map(s => [s.id, s.name])) }]));
-  const startMs = start ? Date.parse(`${start}T00:00:00-08:00`) : -Infinity;
+  const payload = await cachedReference('pipelines', 600000, () => ghl(`/opportunities/pipelines?locationId=${loc}`, { fetchImpl }), fetchImpl);
+  const pipelines = Object.fromEntries((payload.pipelines || []).map(p => [p.id, { name: p.name, stages: Object.fromEntries((p.stages || []).map(s => [s.id, s.name])) }]));
+  const startMs = start ? Date.parse(pacificMidnight(start)) : -Infinity;
   const out = [];
   let cursor = null;
   for (let page = 0; page < envInt('GHL_MAX_OPP_PAGES', 60); page++) {
@@ -159,8 +194,12 @@ async function ghlOpportunities(start, users, fetchImpl, status = 'all') {
 }
 
 // Only contacts behind opportunities in range are fetched (city / ZIP for the location view).
-async function ghlContacts(opportunities, from, fetchImpl) {
-  const ids = [...new Set(opportunities.filter(o => o.contactId && Metrics.dayKey(o.createdAt) >= from).map(o => o.contactId))].slice(0, envInt('GHL_MAX_CONTACTS', 400));
+async function ghlContacts(opportunities, from, to, fetchImpl) {
+  const start = Date.parse(pacificMidnight(from)), end = Date.parse(pacificMidnight(Metrics.shiftDay(to, 1)));
+  const ids = [...new Set(opportunities.filter(o => {
+    const timestamp = Date.parse(o.createdAt);
+    return o.contactId && timestamp >= start && timestamp < end;
+  }).map(o => o.contactId))].slice(0, envInt('GHL_MAX_CONTACTS', 400));
   const out = [];
   for (let i = 0; i < ids.length; i += 8) {
     const batch = await Promise.all(ids.slice(i, i + 8).map(id => ghl(`/contacts/${encodeURIComponent(id)}`, { fetchImpl }).then(p => p.contact || p).catch(() => null)));
@@ -182,7 +221,7 @@ async function ghlSms(start, to, users, fetchImpl) {
   let cursor = null;
   for (let page = 0; page < envInt('GHL_MAX_SMS_PAGES', 40); page++) {
     const params = new URLSearchParams({ locationId: env('GHL_LOCATION_ID'), channel: 'SMS', limit: '1000', sortBy: 'createdAt', sortOrder: 'desc',
-      startDate: new Date(`${start}T00:00:00-08:00`).toISOString(), endDate: new Date(`${Metrics.shiftDay(to, 1)}T08:00:00Z`).toISOString() });
+      startDate: pacificMidnight(start), endDate: pacificMidnight(Metrics.shiftDay(to, 1)) });
     if (cursor) params.set('cursor', cursor);
     const payload = await ghl(`/conversations/messages/export?${params}`, { fetchImpl, version: 'v3' });
     for (const m of payload.messages || []) out.push(normalizeSms(m, users));
@@ -198,7 +237,7 @@ export async function ghlInboundCalls(start, to, fetchImpl = fetch, maxPages = e
   let cursor = null;
   for (let page = 0; page < maxPages; page++) {
     const params = new URLSearchParams({ locationId: env('GHL_LOCATION_ID'), channel: 'Call', limit: '1000', sortBy: 'createdAt', sortOrder: 'desc',
-      startDate: new Date(`${start}T00:00:00-08:00`).toISOString(), endDate: new Date(`${Metrics.shiftDay(to, 1)}T08:00:00Z`).toISOString() });
+      startDate: pacificMidnight(start), endDate: pacificMidnight(Metrics.shiftDay(to, 1)) });
     if (cursor) params.set('cursor', cursor);
     const payload = await ghl(`/conversations/messages/export?${params}`, { fetchImpl, version: 'v3' });
     for (const m of payload.messages || []) if (String(m.direction || '').toLowerCase() === 'inbound' && m.contactId) out.push({ id: m.id || m.messageId, at: m.dateAdded || m.createdAt, contactId: m.contactId });
