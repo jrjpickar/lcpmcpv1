@@ -1,0 +1,21 @@
+{
+  "name": "lcp-mcp",
+  "private": true,
+  "version": "1.0.0",
+  "description": "LCP MCP: simple Groq-assisted metrics for the Triple Line dialer, GHL and the LocalCare Ledger, plus an MCP endpoint.",
+  "scripts": {
+    "test": "node --test",
+    "build": "node scripts/validate.mjs",
+    "sandbox": "node sandbox/server.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "three": "^0.187.0"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^10.7.13"
+  }
+}
