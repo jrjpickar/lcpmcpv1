@@ -39,7 +39,7 @@ const now = () => (performance.now() - S.t0) / 1000;
 export function mount(container, model, opts = {}) {
   unmount();
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
   container.style.position = 'relative';
@@ -99,7 +99,7 @@ export function unmount() {
 function resize() {
   if (!S) return;
   const w = S.container.clientWidth || 800, h = S.container.clientHeight || 600, aspect = w / h;
-  const view = Math.max(35, 36 / aspect); // world units visible vertically; narrow screens fit the width
+  const view = Math.max(30, 36 / aspect); // world units visible vertically; narrow screens fit the width
   Object.assign(S.camera, { left: -view * aspect / 2, right: view * aspect / 2, top: view / 2, bottom: -view / 2 });
   S.camera.updateProjectionMatrix();
   S.renderer.setSize(w, h, false);
@@ -145,7 +145,7 @@ export function update(model) {
   S.labels.innerHTML = ''; S.clickables = []; S.labelList = []; S.anim = []; S.hovered = null;
   S.model = model;
   const city = new THREE.Group(); S.city = city;
-  brain(city, model); calls(city, model); sms(city, model); leads(city, model); automations(city, model); revenue(city, model); health(city, model); twilio(city, model);
+  brain(city, model); calls(city, model); sms(city, model); leads(city, model); automations(city, model); revenue(city, model); health(city, model); if (model.twilio?.balance != null || ['down','warn'].includes(model.twilio?.status)) twilio(city, model);
   flows(city, model);
   S.scene.add(city);
   if (S.selected) { const k = S.selected; S.selected = null; select(k); }
@@ -187,8 +187,8 @@ function calls(city, m) {
   const h = 3 + 2.4 * logScale(c.dials, 40);
   const body = at(box(3, h, 3, mat(0x2c4f86)), 0, h / 2 + 0.12, 0); g.add(body);
   g.add(at(box(3.3, 0.3, 3.3, mat(0x22406e)), 0, h + 0.27, 0));
-  // windows: lit share = live connect rate
-  const floors = Math.max(3, Math.floor(h / 0.75)), per = 3, lit = Math.round((c.connectRate || 0) * floors * per * 4 * 3.2);
+  // Lit windows show the share of calls longer than 60 seconds.
+  const floors = Math.max(3, Math.floor(h / 0.75)), per = 3, lit = Math.round((c.rate || 0) * floors * per * 4);
   const winOn = mat(0xffd27a, { emissive: 0xffc04d, emissiveIntensity: 0.9 }), winOff = mat(0x1a2c4a, { roughness: 0.3, metalness: 0.4 });
   let k = 0;
   for (let f = 0; f < floors; f++) for (let side = 0; side < 4; side++) for (let i = 0; i < per; i++) {
@@ -201,7 +201,7 @@ function calls(city, m) {
   const mast = at(cyl(0.05, 0.08, 2.2, mat(0x9aa7bd)), 0, h + 1.5, 0); g.add(mast);
   const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 12), new THREE.MeshBasicMaterial({ color: 0xff5050 })); beacon.position.y = h + 2.65; g.add(beacon);
   S.anim.push(t => { beacon.visible = Math.sin(t * 5) > -0.2; });
-  label('calls', new THREE.Vector3(x, h + 3.3, z), 'Dialer', num(c.dials) + ' dials · ' + pct(c.connectRate));
+  label('calls', new THREE.Vector3(x, h + 3.3, z), 'Calls', c.dials == null ? 'Unavailable' : num(c.dials) + ' outbound');
 }
 
 function sms(city, m) {
@@ -217,7 +217,7 @@ function sms(city, m) {
   const rings = [0, 1, 2].map(i => { const r = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.035, 8, 40), new THREE.MeshBasicMaterial({ color: 0xff8fb8, transparent: true })); r.rotation.x = Math.PI / 2; r.position.set(1.7, mh + 0.2, 0); g.add(r); return r; });
   const speed = 0.35 + Math.min(1.2, logScale(s.sent, 200));
   S.anim.push(t => rings.forEach((r, i) => { const p = ((t * speed + i / 3) % 1); r.scale.setScalar(1 + p * 3.2); r.material.opacity = 0.8 * (1 - p); }));
-  label('sms', new THREE.Vector3(x + 1.7, mh + 1.2, z), 'SMS', num(s.sent) + ' texts · ' + num(s.replied) + ' replies');
+  label('sms', new THREE.Vector3(x + 1.7, mh + 1.2, z), 'SMS', s.sent == null ? 'Unavailable' : num(s.sent) + ' sent · ' + num(s.delivered) + ' delivered');
 }
 
 function leads(city, m) {
@@ -233,7 +233,7 @@ function leads(city, m) {
     house.add(at(box(0.32, 0.5, 0.04, mat(0x5a4636)), 0, 0.25, 0.66));
     g.add(house);
   });
-  label('leads', new THREE.Vector3(x, 5.4, z), 'Leads', num(l.total) + ' opps · top ' + ((l.cities || [])[0]?.key || '-'));
+  label('leads', new THREE.Vector3(x, 5.4, z), 'Leads', l.total == null ? 'Unavailable' : num(l.total) + ' opps' + (cities[0] ? ' · top ' + cities[0].key : ''));
 }
 
 function gear(r, teeth, m) {
@@ -278,6 +278,7 @@ function revenue(city, m) {
   g.add(at(box(4, 0.25, 2.9, mat(C.wall)), -0.9, 2.6, 0));
   const ped = prism(4, 0.8, 2.9, mat(C.yellow, { flatShading: true })); ped.position.set(-0.9, 2.72, 0); g.add(ped);
   // coin stacks: received, pending (glass), net
+  if (r.fees == null) { label('revenue', new THREE.Vector3(x, 5.6, z), 'Revenue', 'Unavailable'); return; }
   const coinM = mat(0xf2b632, { metalness: 0.75, roughness: 0.3, emissive: 0x3a2600, emissiveIntensity: 0.4 });
   const pendM = mat(0xf2b632, { transparent: true, opacity: 0.28, metalness: 0.5 });
   const scale = Math.max(r.fees || 0, r.pending || 0, Math.abs(r.net || 0), 1);
@@ -288,7 +289,7 @@ function revenue(city, m) {
   const drop = cyl(0.42, 0.42, 0.14, coinM, 20); g.add(drop);
   const topY = 0.2 + Math.max(1, Math.round(16 * (r.fees || 0) / scale)) * 0.16;
   S.anim.push(t => { const q = (t * 0.5) % 1; drop.position.set(1.9, topY + 3 * (1 - q * q), -0.6); drop.rotation.x = t * 3; drop.visible = q < 0.97; });
-  label('revenue', new THREE.Vector3(x, 5.6, z), 'Revenue', money(r.fees) + ' received · net ' + money(r.net));
+  label('revenue', new THREE.Vector3(x, 5.6, z), 'Revenue', r.fees == null ? 'Unavailable' : money(r.fees) + ' received · net ' + money(r.net));
 }
 
 function health(city, m) {
@@ -298,7 +299,7 @@ function health(city, m) {
   g.add(at(cyl(0.9, 1.1, 0.5, mat(0x2b3650)), -2, 2.77, 0));
   const dome = new THREE.Mesh(new THREE.SphereGeometry(0.85, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), mat(C.glass, { transparent: true, opacity: 0.55, roughness: 0.1, metalness: 0.3 })); dome.position.set(-2, 3, 0); g.add(dome);
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.06, 8, 32), new THREE.MeshBasicMaterial({ color: 0x3ddc84, transparent: true })); ring.rotation.x = Math.PI / 2; ring.position.set(-2, 3.2, 0); g.add(ring);
-  const src = (h.sources || []).slice(0, 5);
+  const src = (h.sources || []).slice(0, 6);
   const worst = src.some(s => s.status === 'down') ? 'down' : src.some(s => s.status === 'warn' || s.status === 'off') ? 'warn' : 'ok';
   ring.material.color.setHex(STATUS[worst]);
   src.forEach((s, i) => {
@@ -313,11 +314,17 @@ function health(city, m) {
   label('health', new THREE.Vector3(x - 1, 5, z), 'System health', okN + ' of ' + src.length + ' healthy');
 }
 
+function balanceLabel(tw) {
+  if (tw.balance == null) return 'Unavailable';
+  const currency = tw.currency || 'USD';
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(tw.balance);
+}
+
 function twilio(city, m) {
   const [x, z] = SPOTS.twilio, g = structure(city, 'twilio', x, z), tw = m.twilio || {};
   pad(g, 4.6, 4.4);
   const cap = tw.capacity || Math.max(500, (tw.balance || 0) * 1.4), f = Math.max(0.04, Math.min(1, (tw.balance || 0) / cap));
-  const color = (tw.balance || 0) < (tw.low || 100) ? C.red : (tw.balance || 0) < (tw.low || 100) * 2 ? C.warn : C.aqua;
+  const color = tw.balance == null ? STATUS.off : (tw.balance || 0) < (tw.low || 100) ? C.red : (tw.balance || 0) < (tw.low || 100) * 2 ? C.warn : C.aqua;
   for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + Math.PI / 4; g.add(at(cyl(0.08, 0.1, 1.2, mat(0x7d889c), 6), Math.sin(a) * 1.1, 0.7, Math.cos(a) * 1.1)); }
   g.add(at(cyl(1.45, 1.45, 0.16, mat(0x55617a)), 0, 1.32, 0));
   const H = 3.2;
@@ -329,14 +336,15 @@ function twilio(city, m) {
   for (let i = 1; i < 4; i++) { const tick = new THREE.Mesh(new THREE.TorusGeometry(1.36, 0.025, 6, 40), new THREE.MeshBasicMaterial({ color: 0x8fa0bd, transparent: true, opacity: 0.6 })); tick.rotation.x = Math.PI / 2; tick.position.y = 1.4 + H * i / 4; g.add(tick); }
   S.anim.push(t => { fill.material.emissiveIntensity = 0.3 + Math.sin(t * 1.5) * 0.08; });
   const days = tw.burnPerDay ? Math.floor(tw.balance / tw.burnPerDay) : null;
-  label('twilio', new THREE.Vector3(x, 6.2, z), 'Twilio balance', money(tw.balance) + (days != null ? ' · ' + days + ' days left' : ''));
+  label('twilio', new THREE.Vector3(x, 6.2, z), 'Twilio balance', balanceLabel(tw) + (days != null ? ' · ' + days + ' days left' : ''));
 }
 
 // Data flowing from every structure into the Brain. More activity = more packets.
 function flows(city, m) {
-  const vol = { calls: m.calls?.dials, sms: m.sms?.sent, leads: m.leads?.total * 20, automations: m.automations?.entered * 3, revenue: (m.revenue?.deals || 0) * 200, health: 400, twilio: 300 };
+  const vol = { calls: m.calls?.dials, sms: m.sms?.sent, leads: m.leads?.total * 20, automations: m.automations?.entered * 3, revenue: m.revenue?.deals * 200, health: 400, twilio: m.twilio?.balance };
   const geo = new THREE.SphereGeometry(0.13, 10, 10);
   Object.entries(SPOTS).forEach(([k, [x, z]]) => {
+    if (!vol[k]) return;
     const n = Math.max(2, Math.min(9, Math.round(2 + 2 * logScale(vol[k], 80))));
     const colr = { calls: 0x5598e7, sms: 0xff8fb8, leads: 0xb3a9ff, automations: 0xffc04d, revenue: 0xffd27a, health: 0x7ee2b8, twilio: 0x7ee2b8 }[k];
     const len = Math.hypot(x, z), ux = -x / len, uz = -z / len, start = 3.2, end = len - 3.3;
@@ -398,16 +406,20 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&a
 
 function describe(key, m) {
   const c = m.calls || {}, s = m.sms || {}, l = m.leads || {}, a = m.automations || {}, r = m.revenue || {}, h = m.health || {}, t = m.twilio || {};
-  const dur = sec => sec == null ? '-' : Math.floor(sec / 60) + 'm ' + String(Math.round(sec % 60)).padStart(2, '0') + 's';
   switch (key) {
-    case 'brain': return { kicker: 'The core', title: 'LCP Brain', rows: [['Insights', num((m.insights || []).length)], ['Groq', m.groq ? 'Connected' : 'Sandbox (rule-based)'], ['MCP tools', '7']], list: (m.insights || []).slice(0, 4), view: 'sales', viewLabel: 'Sales' };
-    case 'calls': return { kicker: 'Dialer tower', title: 'Calls', rows: [['Dials', num(c.dials)], ['Live connect rate', pct(c.connectRate)], ['Talk time', c.talkMinutes == null ? '-' : (c.talkMinutes / 60).toFixed(1) + 'h'], ['Avg call', dur(c.avgCall)], ['Top rep', esc(c.topRep || '-')]], note: 'Tower height follows dials. Lit windows follow the live connect rate.', view: 'sales', viewLabel: 'Sales' };
-    case 'sms': return { kicker: 'Post office', title: 'SMS', rows: [['Texts sent', num(s.sent)], ['Contacts replied', num(s.replied)], ['Qualified from SMS', num(s.qualified)], ['Texts per qualified', s.perQualified == null ? '-' : s.perQualified]], note: 'Mast height and signal speed follow texts sent.', view: 'sales', viewLabel: 'Sales' };
+    case 'brain': return { kicker: 'The core', title: 'LCP Brain', rows: [['Insights', num((m.insights || []).length)], ['Groq', esc(m.groqStatus || (m.groq ? 'Configured' : 'Rule-based'))]], list: (m.insights || []).slice(0, 4), view: 'sales', viewLabel: 'Sales' };
+    case 'calls': return { kicker: 'Dialer tower', title: 'Calls', rows: [['Outbound calls', num(c.dials)], ['Calls over 60 seconds', num(c.conversations)], ['Share over 60 seconds', pct(c.rate)]], view: 'sales', viewLabel: 'Sales' };
+    case 'sms': return { kicker: 'Post office', title: 'SMS', rows: [['Outbound SMS sent', num(s.sent)], ['Delivered', num(s.delivered)]], view: 'sales', viewLabel: 'Sales' };
     case 'leads': return { kicker: 'Neighborhood', title: 'Leads', rows: [['Opportunities', num(l.total)], ['Pipeline value', money(l.value)], ['Median touches', l.medianTouches ?? '-'], ['Top city', esc((l.cities || [])[0]?.key || '-')]], list: (l.cities || []).slice(0, 5).map(c => c.key + ': ' + num(c.count) + ' opps'), note: 'One house per city. Height follows opportunities created there.', view: 'sales', viewLabel: 'Sales' };
     case 'automations': return { kicker: 'Factory', title: 'Automations', rows: [['Workflows', num(a.workflows)], ['Contacts enrolled', num(a.entered)], ['Finished', pct(a.completion)], ['Skipped / failed', num(a.skipped) + ' / ' + num(a.failed)]], note: 'Gears and smoke speed follow enrollments. The beacon blinks red when a step failed.', view: 'workflows', viewLabel: 'Workflows' };
     case 'revenue': return { kicker: 'Bank', title: 'Revenue', rows: [['Fees received', money(r.fees)], ['Net', money(r.net)], ['Fees pending', money(r.pending)], ['Deals paid', num(r.deals)], ['EMD at risk', money(r.emd)]], note: 'Coin stacks: received, pending (glass), net.', view: 'accounting', viewLabel: 'Accounting' };
-    case 'health': return { kicker: 'Control room', title: 'System health', rows: (h.sources || []).map(x => [esc(x.name), `<i class="b3-dot" style="background:#${(STATUS[x.status] || STATUS.off).toString(16).padStart(6, '0')}"></i>${esc(x.detail)}`]), note: 'One light per data source. Sample statuses in the sandbox.' };
-    case 'twilio': { const days = t.burnPerDay ? Math.floor(t.balance / t.burnPerDay) : null; return { kicker: 'Water tower', title: 'Twilio balance', rows: [['Balance', money(t.balance)], ['Spend per day', money(t.burnPerDay)], ['Days left', days == null ? '-' : num(days)], ['Low alert at', money(t.low)]], note: 'Fill level follows the balance. Turns amber under 2x the alert and red under it. Sample value in the sandbox.' }; }
+    case 'health': return { kicker: 'Control room', title: 'System health', rows: (h.sources || []).map(x => [esc(x.name), `<i class="b3-dot" style="background:#${(STATUS[x.status] || STATUS.off).toString(16).padStart(6, '0')}"></i>${esc(x.detail)}`]), note: 'Status reflects the latest data available to Brain.' };
+    case 'twilio': {
+      const rows = [['Balance', balanceLabel(t)]];
+      if (t.checkedAt) rows.push(['Checked', esc(new Date(t.checkedAt).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })) + ' PT']);
+      if (t.burnPerDay != null) rows.push(['Spend per day', money(t.burnPerDay)]);
+      return { kicker: 'Water tower', title: 'Twilio balance', rows, note: esc(t.detail || 'Sample balance') };
+    }
     default: return { kicker: '', title: key, rows: [] };
   }
 }

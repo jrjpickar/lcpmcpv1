@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import Metrics from '../../../public/lcp-metrics.js';
 import Sample from '../../../public/sample-data.js';
 import { mode } from './sources.mjs';
@@ -15,7 +16,7 @@ export function activityIsSample() {
   return process.env.DATA_MODE === 'sample' || (!process.env.TWILIO_ACCOUNT_SID && mode() === 'sample');
 }
 
-function credentials(env) {
+export function twilioCredentials(env) {
   const account = env.TWILIO_ACCOUNT_SID;
   if (!/^AC[a-f0-9]{32}$/i.test(account || '')) throw problem('Set TWILIO_ACCOUNT_SID on LCP MCP.', 503);
   const apiKey = env.TWILIO_API_KEY;
@@ -52,13 +53,32 @@ const definitions = {
   rep: 'Rep filters match dedicated Twilio From numbers in AGENT_ASSIGNMENTS. Shared and unmapped numbers appear in all-rep totals only.',
 };
 
+async function fetchPage(url, authorization, deadline, fetchImpl) {
+  for (let attempt = 0; ; attempt++) {
+    const signal = AbortSignal.any([deadline, AbortSignal.timeout(10000)]);
+    const response = await fetchImpl(url, { headers: { authorization, accept: 'application/json' }, signal, redirect: 'error' });
+    if (response.ok || attempt >= 2 || (response.status !== 429 && response.status < 500)) return response;
+    await response.body?.cancel();
+    const retryAfter = Number(response.headers.get('retry-after'));
+    await delay(retryAfter > 0 ? Math.min(3000, retryAfter * 1000) : 350 * 2 ** attempt, undefined, { signal: deadline });
+  }
+}
+
+function windowsFor(range) {
+  const windows = [];
+  for (let from = range.from; from <= range.to; from = Metrics.shiftDay(from, 14)) {
+    const end = Metrics.shiftDay(from, 13);
+    windows.push({ from, to: end < range.to ? end : range.to });
+  }
+  return windows;
+}
+
 // Widen the provider bounds to UTC dates, then apply exact Pacific dates to each record.
-async function readChannel(channel, range, auth, assigned, fetchImpl) {
+async function readChannel(channel, range, auth, assigned, deadline, fetchImpl) {
   const isCall = channel === 'calls';
   const path = `/2010-04-01/Accounts/${auth.account}/${isCall ? 'Calls' : 'Messages'}.json`;
   const field = isCall ? 'StartTime' : 'DateSent';
   const params = new URLSearchParams({ PageSize: '1000', [field + '>']: range.from, [field + '<']: Metrics.shiftDay(range.to, 2) });
-  const signal = AbortSignal.timeout(8000);
   const seen = new Set(), cursors = new Set(), days = new Map();
   let next = new URL(`${path}?${params}`, origin), pages = 0, warning = '';
   try {
@@ -67,7 +87,7 @@ async function readChannel(channel, range, auth, assigned, fetchImpl) {
         throw new Error('Twilio returned an invalid pagination cursor.');
       }
       cursors.add(next.href);
-      const response = await fetchImpl(next, { headers: { authorization: auth.authorization, accept: 'application/json' }, signal, redirect: 'error' });
+      const response = await fetchPage(next, auth.authorization, deadline, fetchImpl);
       if (!response.ok) throw new Error(`Twilio ${isCall ? 'Calls' : 'Messages'} returned HTTP ${response.status}.`);
       const payload = await response.json();
       if (!Array.isArray(payload[channel])) throw new Error('Twilio returned an invalid page.');
@@ -96,15 +116,47 @@ async function readChannel(channel, range, auth, assigned, fetchImpl) {
     }
     if (next) warning = 'Twilio page limit reached. Pick a shorter date range.';
   } catch (error) {
-    warning = signal.aborted ? 'Twilio read timed out. Pick a shorter date range.' :
+    warning = (deadline.aborted || error.name === 'TimeoutError' || error.name === 'AbortError') ? 'Twilio read timed out.' :
       (/^Twilio .+ returned HTTP \d+\.$/.test(error.message) ? error.message : 'Twilio data could not be read.');
   }
   return { days, coverage: { available: pages > 0, partial: Boolean(warning), warning: warning || null } };
 }
 
 async function readActivity(range, auth, assigned, fetchImpl) {
-  const [calls, sms] = await Promise.all([readChannel('calls', range, auth, assigned, fetchImpl), readChannel('messages', range, auth, assigned, fetchImpl)]);
-  return { calls, sms, fetchedAt: new Date().toISOString() };
+  const windows = windowsFor(range);
+  const deadline = AbortSignal.timeout(44000);
+  const results = new Array(windows.length);
+  let index = 0;
+  async function worker() {
+    while (index < windows.length && !deadline.aborted) {
+      const slot = index++;
+      const window = windows[slot];
+      results[slot] = await Promise.all([
+        readChannel('calls', window, auth, assigned, deadline, fetchImpl),
+        readChannel('messages', window, auth, assigned, deadline, fetchImpl),
+      ]);
+      // Auth errors cannot be fixed by asking for another slice.
+      if (results[slot].every(part => /HTTP (401|403)\./.test(part.coverage.warning || ''))) break;
+    }
+  }
+  await Promise.all(Array.from({length: Math.min(3, windows.length)}, worker));
+  function combine(channel) {
+    const days = new Map(), warnings = new Set(), missing = [];
+    let available = false;
+    for (const [i, window] of windows.entries()) {
+      const part = results[i]?.[channel];
+      if (part?.coverage.available) available = true;
+      if (!part || part.coverage.partial) {
+        missing.push(window);
+        if (part?.coverage.warning) warnings.add(part.coverage.warning);
+        continue;
+      }
+      for (const [day, reps] of part.days) days.set(day, reps);
+    }
+    if (missing.length && !warnings.size) warnings.add('Twilio read did not finish.');
+    return { days, coverage: { available, partial: missing.length > 0, missing, warning: [...warnings].join(' ') || null } };
+  }
+  return { calls: combine(0), sms: combine(1), fetchedAt: new Date().toISOString() };
 }
 
 function cachedActivity(range, auth, assigned, fetchImpl) {
@@ -115,7 +167,8 @@ function cachedActivity(range, auth, assigned, fetchImpl) {
   const entry = { until: Infinity };
   entry.result = readActivity(range, auth, assigned, fetchImpl).then(result => {
     const partial = result.calls.coverage.partial || result.sms.coverage.partial;
-    entry.until = Date.now() + (partial ? 15000 : range.to < Metrics.dayKey(Date.now()) ? 1800000 : 120000);
+    if (partial && cache.get(key) === entry) cache.delete(key);
+    entry.until = Date.now() + (range.to < Metrics.dayKey(Date.now()) ? 1800000 : 120000);
     return result;
   }, error => {
     if (cache.get(key) === entry) cache.delete(key);
@@ -137,7 +190,7 @@ export async function loadActivity({ from, to, preset, rep = '' } = {}, fetchImp
     return { sample: true, range: r.range, rep, totals: { calls: r.kpis.dials, sms: r.kpis.smsSent } };
   }
   const range = { from, to, timezone };
-  const auth = credentials(process.env);
+  const auth = twilioCredentials(process.env);
   const assigned = repAssignments(process.env.AGENT_ASSIGNMENTS);
   const { calls, sms, fetchedAt } = await cachedActivity(range, auth, assigned, fetchImpl);
   if (!calls.coverage.available && !sms.coverage.available) {
@@ -161,8 +214,8 @@ export async function loadActivity({ from, to, preset, rep = '' } = {}, fetchImp
   }
   const daily = [...byDay].sort(([a], [b]) => a.localeCompare(b)).map(([day, counts]) => ({ day, ...counts }));
   for (const row of [totals, ...daily]) {
-    if (!repAvailable || !calls.coverage.available) row.calls = row.conversations = null;
-    if (!repAvailable || !sms.coverage.available) row.sms = row.smsDelivered = null;
+    if (!repAvailable || calls.coverage.partial || !calls.coverage.available) row.calls = row.conversations = null;
+    if (!repAvailable || sms.coverage.partial || !sms.coverage.available) row.sms = row.smsDelivered = null;
   }
   return { source: 'Twilio', range, rep, reps, repAvailable, fetchedAt, totals, daily,
     coverage: { calls: calls.coverage, sms: sms.coverage }, definitions };

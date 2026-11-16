@@ -152,10 +152,10 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
 .mtab tr.flag td{color:#ffb4b4}
 .mtab a{color:#86b6ef}
 /* 3D Brain */
-.brain{position:relative;height:min(78vh,820px);min-height:520px;border-radius:var(--r);border:1px solid var(--line);background:radial-gradient(900px 520px at 50% 40%,#1b2a4d 0%,#0e1628 70%);overflow:hidden}
+.wrap:has(#v-brain.on){max-width:none;padding-inline:clamp(10px,1.4vw,26px);padding-top:14px;padding-bottom:12px}.brain{position:relative;height:calc(100dvh - 145px);min-height:520px;border-radius:var(--r);border:1px solid var(--line);background:radial-gradient(900px 520px at 50% 40%,#1b2a4d 0%,#0e1628 70%);overflow:hidden}
 .brain canvas{cursor:grab}.brain canvas:active{cursor:grabbing}
 .brain-top{position:absolute;left:16px;top:14px;z-index:3;pointer-events:none}
-.brain-activity{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;align-items:center}.brain-activity section{flex:1 1 150px;border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:10px 14px}.brain-activity strong{display:block;font-size:24px;font-variant-numeric:tabular-nums}.brain-activity .meta{flex:1 1 100%;margin:0}
+.brain-activity{display:flex;gap:8px 20px;flex-wrap:wrap;margin-bottom:9px;align-items:center}.brain-activity section{display:flex;gap:8px;flex-wrap:wrap;align-items:baseline}.brain-activity strong{font-size:20px;font-variant-numeric:tabular-nums}.brain-activity small{color:var(--text-2)}.brain-activity .meta{flex:1 1 250px;margin:0}
 .brain-top h2{margin:0;font-size:15px;font-weight:650}.brain-top .meta{margin-top:2px}
 .b3-labels{position:absolute;inset:0;pointer-events:none;z-index:2}
 .b3-label{position:absolute;left:0;top:0;pointer-events:auto;cursor:pointer;background:rgba(10,16,30,.82);border:1px solid #2a3756;border-radius:9px;padding:4px 9px;font-size:11.5px;white-space:nowrap;backdrop-filter:blur(4px);transition:border-color .15s,background .15s;display:flex;flex-direction:column;line-height:1.3}
@@ -176,7 +176,7 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
 .brain-hint{position:absolute;right:14px;bottom:14px;z-index:3;font-size:12px;color:var(--muted);pointer-events:none}
 @media (max-width:1180px){.kpis{grid-template-columns:repeat(3,1fr)}.strip{grid-template-columns:repeat(3,1fr)}.opps{grid-template-columns:1fr 1fr}.ai{grid-template-columns:1fr}}
 @media (max-width:820px){.sigs{grid-template-columns:1fr 1fr}.sigd .cols{grid-template-columns:1fr}.callgrid,.paths,.path-body,.two{grid-template-columns:1fr}.opps{grid-template-columns:1fr}.ai ol{grid-template-columns:1fr}}
-@media (max-width:560px){.brain{height:72vh;min-height:460px}.b3-panel{top:auto;bottom:10px;right:10px;left:10px;width:auto}.b3-label span{display:none}.b3-label{padding:3px 7px}.brain-hint{display:none}.wrap{padding:14px}.kpis,.strip{grid-template-columns:1fr 1fr}.kpi .v{font-size:22px}.filters{margin-left:0}nav.tabs button{padding:10px 10px}}
+@media (max-width:560px){.brain{height:calc(100dvh - 205px);min-height:440px}.b3-panel{top:auto;bottom:10px;right:10px;left:10px;width:auto}.b3-label span{display:none}.b3-label{padding:3px 7px}.brain-hint{display:none}.wrap{padding:14px}.kpis,.strip{grid-template-columns:1fr 1fr}.kpi .v{font-size:22px}.filters{margin-left:0}nav.tabs button{padding:10px 10px}}
 </style>
 </head>
 <body>
@@ -204,7 +204,7 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
   <div class="view" id="v-brain"><div class="brain-activity" aria-label="Outbound activity" aria-busy="true">
     <section>Outbound calls<strong id="brainCalls">—</strong><small id="brainCallDetail"></small></section>
     <section>Outbound SMS<strong id="brainSms">—</strong><small id="brainSmsDetail"></small></section>
-    <div class="meta" id="brainActivityMeta" aria-live="polite"></div>
+    <div class="meta" id="brainActivityMeta" aria-live="polite"></div><button type="button" class="btn" id="brainRetry" hidden>Retry activity</button>
   </div><div class="brain" id="brain3d"><div class="brain-top"><h2>LCP Brain</h2><div class="meta" id="brainMeta"></div></div><div class="brain-hint">Drag to rotate · scroll to zoom · click a building</div></div></div>
 
   <!-- SALES -->
@@ -261,8 +261,8 @@ var STATIC = !!window.LCP_STATIC;
 var key = (location.hash.match(/key=([^&]+)/) || [])[1] || ssGet('lcpKey') || '';
 if (key) ssSet('lcpKey', key);
 var state = { sig: '', view: 'sales', preset: '30d', from: '', to: '', rep: '', locBy: 'city', sort: { k: 'dials', dir: -1 } };
-var sampleData = null, last = null, wf = null, brainReady = false, brainLoading = false, brainReport = null;
-var twilioReps = null;
+var sampleData = null, last = null, wf = null, brainReady = false, brainLoading = false, brainReport = null, brainActivity = null, renderedActivity = null;
+var brainStatus = null, renderedStatus = null, renderedWorkflow = null, brainWorkflow = null, twilioReps = null;
 var reads = new Map(), reportGeneration = 0, workflowGeneration = 0, activityGeneration = 0, filterTimer;
 var SLOTS = ['--s1','--s2','--s3','--s4','--s5','--s6','--s7','--s8'], repColor = {};
 var OUT_COLOR = { noanswer: 'var(--s1)', notinterested: 'var(--s2)', followup: 'var(--s3)', bad: 'var(--s4)', other: 'var(--s7)' };
@@ -283,7 +283,10 @@ function cachedApi(path){
   var hit = reads.get(path);
   if (hit && hit.until > Date.now()) return hit.result;
   var entry = { until: Date.now() + 120000 };
-  entry.result = api(path).catch(function(e){ if (reads.get(path) === entry) reads.delete(path); throw e; });
+  entry.result = api(path).then(function(data){
+    if ((data.coverage?.calls?.partial || data.coverage?.sms?.partial) && reads.get(path) === entry) reads.delete(path);
+    return data;
+  }).catch(function(e){ if (reads.get(path) === entry) reads.delete(path); throw e; });
   reads.set(path, entry);
   if (reads.size > 24) reads.delete(reads.keys().next().value);
   return entry.result;
@@ -347,7 +350,7 @@ function render(r){
   if (state.view === 'sales') { renderKpis(r); renderInsights(r); renderSignals(r); renderCalls(r); renderOpps(r); renderPath(r, 'sms'); renderPath(r, 'dial'); }
   if (state.view === 'accounting') renderAccounting(r);
   if (state.view === 'workflows') loadWorkflows();
-  if (state.view === 'brain') { showBrain(); if (STATIC) showSampleActivity(r); }
+  if (state.view === 'brain') { showBrain(); refreshBrainWorkflowStatus(); if (STATIC) showSampleActivity(r); }
   $('footMeta').textContent = r.range.from + ' to ' + r.range.to + ' · ' + r.range.timezone + (r.previous ? ' · changes vs ' + r.previous.range.from + ' to ' + r.previous.range.to : '');
 }
 
@@ -700,48 +703,137 @@ function loadBrainActivity(){
     return;
   }
   var range = p.from ? p : M.presetRange(p.preset);
-  var query = new URLSearchParams({ from: range.from, to: range.to, rep: p.rep || '' });
+  $('from').value = range.from; $('to').value = range.to;
   var label = range.from + ' to ' + range.to + ' · Pacific' + (p.rep ? ' · ' + p.rep : '');
-  activityText(null, null, '', '', 'Loading activity · ' + label, true);
-  cachedApi('/api/activity?' + query).then(function(a){
-    if (generation !== activityGeneration || state.view !== 'brain') return;
-    if (a.sample) { activityText(a.totals.calls, a.totals.sms, '', '', 'Sample activity · ' + label, false); return; }
-    twilioReps = a.reps;
-    renderRepOptions(last && last.reps);
-    var t = a.totals, c = a.coverage;
-    var timestamp = new Date(a.fetchedAt).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-    var warnings = [c.calls.warning, c.sms.warning].filter(Boolean);
-    var note = label + ' · Twilio read ' + timestamp;
-    if (!a.repAvailable) note += ' · No dedicated Twilio number mapped to this rep';
-    if (warnings.length) note += ' · Partial data · ' + warnings.join(' ');
-    activityText(t.calls, t.sms,
-      t.conversations == null ? '' : n(t.conversations) + ' calls over 60s',
-      t.smsDelivered == null ? '' : n(t.smsDelivered) + ' delivered', note, false);
-  }).catch(function(e){
-    if (generation === activityGeneration && state.view === 'brain') activityText(null, null, '', '', e.message + ' · ' + label, false);
+  var current = function(){ return generation === activityGeneration && state.view === 'brain'; };
+  brainActivity = null;
+  showBrain();
+  $('brainRetry').hidden = true;
+  if (range.to > M.shiftDay(range.from, 399)) {
+    activityText(null, null, '', '', 'Pick a range of at most 400 days.', false);
+    return;
+  }
+  var windows = [];
+  for (var from = range.from; from <= range.to; from = M.shiftDay(from, 56)) {
+    var end = M.shiftDay(from, 55);
+    windows.push({from:from, to:end < range.to ? end : range.to, rep:p.rep || ''});
+  }
+  activityText(null, null, '', '', 'Loading Twilio · ' + label, true);
+  var index = 0, completed = 0, results = [];
+  async function worker(){
+    while (current() && index < windows.length) {
+      var slot = index++;
+      try { results[slot] = await cachedApi('/api/activity?' + new URLSearchParams(windows[slot])); }
+      catch (e) {
+        results[slot] = { error:e.message };
+        if (/Unauthorized|HTTP (401|403)|Set TWILIO/.test(e.message)) index = windows.length;
+      }
+      if (current() && ++completed < windows.length && windows.length > 1) {
+        activityText(null, null, '', '', 'Loading Twilio · ' + completed + '/' + windows.length + ' date ranges · ' + label, true);
+      }
+    }
+  }
+  Promise.all(Array.from({length: Math.min(2, windows.length)}, worker)).then(function(){
+    if (!current()) return;
+    var valid = results.filter(function(x){ return x && !x.error; });
+    if (!valid.length) {
+      brainActivity = {incomplete:true};
+      showBrain();
+      activityText(null, null, '', '', (results.find(function(x){return x && x.error;}) || {}).error || 'Twilio unavailable.', false);
+      $('brainRetry').hidden = false;
+      return;
+    }
+    var sample = valid.every(function(a){return a.sample;});
+    var totals = {};
+    ['calls','conversations','sms','smsDelivered'].forEach(function(key){
+      totals[key] = valid.length === windows.length && valid.every(function(a){return Number.isFinite(a.totals[key]);})
+        ? valid.reduce(function(sum,a){return sum + a.totals[key];},0) : null;
+    });
+    var warnings = new Set();
+    results.forEach(function(a){
+      if (a.error) warnings.add(a.error);
+      else if (!a.sample) [a.coverage.calls.warning,a.coverage.sms.warning].filter(Boolean).forEach(function(w){warnings.add(w);});
+    });
+    if (!sample) {
+      twilioReps = valid.find(function(a){return a.reps;})?.reps || [];
+      renderRepOptions(last && last.reps);
+    }
+    var repUnavailable = valid.some(function(a){return a.repAvailable === false;});
+    var incomplete = Boolean(warnings.size || valid.length < windows.length);
+    brainActivity = {totals:totals, sample:sample, incomplete:incomplete};
+    var note = label + (sample ? ' · Sample data' : ' · Twilio');
+    if (repUnavailable) note += ' · No dedicated number mapped to this rep';
+    if (incomplete) note += ' · Incomplete range · ' + Array.from(warnings).join(' ');
+    activityText(totals.calls, totals.sms,
+      totals.conversations == null ? '' : n(totals.conversations) + ' calls over 60s',
+      totals.smsDelivered == null ? '' : n(totals.smsDelivered) + ' delivered', note, false);
+    $('brainRetry').hidden = !incomplete;
+    showBrain();
   });
 }
-function brainModel(r){
-  var t = r.callsByUser.totals, o = r.opportunities, a = r.accounting || {}, sources = r.sources;
-  var sample = sources.mode === 'sample', days = Math.min(120, Math.max(7, r.range.days));
-  var w = sample && window.LcpSample ? window.LcpSample.workflows(days) : (wf && wf.days === days ? wf : {});
-  var wo = w.overview || {}, ops = r.ops || (sample && window.LcpSample && window.LcpSample.ops()) || {};
-  var health = [['dialer', 'Triple Line'], ['ghl', 'HighLevel'], ['ledger', 'Ledger'], ['workflows', 'Workflows'], ['groq', 'Groq']].map(function(entry){
-    return {name: entry[1], status: sources[entry[0]] ? 'warn' : 'off', detail: sources[entry[0]] ? 'Configured' : 'Disabled'};
+
+function refreshBrainStatus(){
+  if (STATIC) return;
+  cachedApi('/api/brain-status').then(function(status){
+    brainStatus = status;
+    showBrain();
+  }).catch(function(){
+    brainStatus = {billing:{status:'down',detail:'Status request failed'},groq:{status:'down',detail:'Status request failed'}};
+    showBrain();
   });
+}
+
+function refreshBrainWorkflowStatus(){
+  if (STATIC || !last?.sources?.workflows) return;
+  cachedApi('/api/workflows?days=7').then(function(result){
+    brainWorkflow = result;
+    showBrain();
+  }).catch(function(){
+    brainWorkflow = {error:'Workflow feed read failed'};
+    showBrain();
+  });
+}
+
+function brainModel(r){
+  var o = r?.opportunities || {}, a = r?.accounting || {}, sources = r?.sources || {}, warnings = sources.warnings || [];
+  var sample = (STATIC || brainActivity?.sample) && sources.mode === 'sample', days = r?.range.days || 0;
+  var currentRange = r && r.range.from === $('from').value && r.range.to === $('to').value && (r.range.rep || '') === state.rep;
+  var w = sample && window.LcpSample ? window.LcpSample.workflows(Math.min(120,Math.max(7,days))) :
+    (currentRange && r.range.to === M.dayKey(Date.now()) && wf && wf.days === days && wf.configured !== false ? wf : {});
+  var wo = w.overview || {}, ops = sample ? (r?.ops || window.LcpSample?.ops() || {}) : {};
+  var totals = sample ? {calls:r.kpis.dials, sms:r.kpis.smsSent} : (brainActivity?.totals || {});
+  var failed = function(prefix){ return warnings.some(function(w){return w.startsWith(prefix);}); };
+  var leadsOk = currentRange && (sample || (sources.ghl && !failed('GHL opportunities')));
+  var ledgerOk = currentRange && (sample || (sources.ledger && !failed('Ledger')));
+  var provider = function(name, configured, prefix){
+    var problems = warnings.filter(function(w){return w.startsWith(prefix);}).length;
+    if (!sources.loadedAt) return {name:name,status:'off',detail:'Waiting for report'};
+    if (!configured) return {name:name,status:'off',detail:'Not configured'};
+    return {name:name,status:problems ? 'warn' : 'ok',detail:problems ? problems + ' report read issue(s)' : 'Report read completed'};
+  };
+  var health = [
+    {name:'Twilio activity', status:brainActivity ? (brainActivity.incomplete ? 'warn' : 'ok') : 'off', detail:brainActivity ? (brainActivity.incomplete ? 'Incomplete date range' : 'Read completed') : 'Waiting for activity'},
+    provider('HighLevel',sources.ghl,'GHL'),
+    provider('Triple Line',sources.dialer,'Dialer'),
+    provider('Ledger',sources.ledger,'Ledger'),
+    {name:'Workflow feed', status:!brainWorkflow ? 'off' : (brainWorkflow.error || brainWorkflow.configured === false || !brainWorkflow.feed?.updatedAt || brainWorkflow.feed?.stale ? 'warn' : 'ok'),
+      detail:brainWorkflow?.error || (brainWorkflow?.configured === false ? 'Feed not configured' : brainWorkflow?.feed?.stale ? 'Feed is stale' : brainWorkflow?.feed?.updatedAt ? 'Feed read completed' : (brainWorkflow ? 'No feed update yet' : (sources.workflows ? 'Waiting for feed' : 'Not checked')))},
+    Object.assign({name:'Groq',status:'off',detail:'Waiting for check'},brainStatus?.groq),
+  ];
+
   return {
-    groq: !!(r.sources && r.sources.groq), insights: r.insights || [],
-    calls: { dials: t.dials, connectRate: t.connectRate, talkMinutes: t.talkMinutes, avgCall: t.avgCallSeconds, topRep: (r.callsByUser.rows[0] || {}).rep },
-    sms: { sent: r.smsToQualified.smsSent, replied: r.smsToQualified.contactsReplied, qualified: r.smsToQualified.qualified, perQualified: r.smsToQualified.smsPerQualified },
-    leads: { total: o.total, value: o.value, medianTouches: o.medianTouches, cities: o.byCity.map(function(c){ return { key: c.key, count: c.count }; }) },
+    groq: !!sources.groq, groqStatus: brainStatus?.groq?.detail, insights: currentRange ? r.insights || [] : [],
+    calls: { dials: totals.calls, conversations: totals.conversations, rate: totals.calls > 0 && totals.conversations != null ? totals.conversations / totals.calls : null },
+    sms: { sent: totals.sms, delivered: totals.smsDelivered },
+    leads: leadsOk ? { total: o.total, value: o.value, medianTouches: o.medianTouches, cities: o.byCity.filter(function(c){return c.key !== 'Unknown';}) } : {},
     automations: { workflows: wo.totalWorkflows, entered: wo.enrollments, completion: wo.completionRate, skipped: wo.skipped, failed: wo.failed },
-    revenue: { fees: a.revenue, net: a.net, pending: a.feesPending, deals: a.dealsPaid, emd: a.emdAtRisk },
-    health: ops.health || { sources: health }, twilio: ops.twilio || {}
+    revenue: ledgerOk ? { fees: a.revenue, net: a.net, pending: a.feesPending, deals: a.dealsPaid, emd: a.emdAtRisk } : {},
+    health: ops.health || { sources: health }, twilio: ops.twilio || brainStatus?.billing || {}
   };
 }
 function showBrain(){
-  if (!last || state.view !== 'brain' || brainReport === last) return;
-  $('brainMeta').textContent = (last.sources.mode === 'sample' ? 'Sample data' : 'Sales report · dialer tower uses logged dispositions · Twilio balance unavailable') + ' · ' + last.range.from + ' to ' + last.range.to;
+  if (state.view !== 'brain' || (brainReady && brainReport === last && renderedActivity === brainActivity && renderedStatus === brainStatus && renderedWorkflow === brainWorkflow)) return;
+  $('brainMeta').textContent = '';
   if (window.LcpBrain) {
     try {
       if (brainReady) window.LcpBrain.update(brainModel(last));
@@ -750,12 +842,12 @@ function showBrain(){
     } catch (e) {
       $('brainMeta').textContent = '3D view unavailable on this device.';
     }
-    brainReport = last;
+    brainReport = last; renderedActivity = brainActivity; renderedStatus = brainStatus; renderedWorkflow = brainWorkflow;
     return;
   }
   if (brainLoading) return;
   brainLoading = true;
-  var s = document.createElement('script'); s.src = 'brain3d.js';
+  var s = document.createElement('script'); s.src = 'brain3d.js?v=twilio-billing';
   s.onload = function(){ brainLoading = false; showBrain(); };
   s.onerror = function(){ brainLoading = false; $('brainMeta').textContent = 'Could not load the 3D view.'; };
   document.head.appendChild(s);
@@ -768,7 +860,7 @@ function setView(v){
   ['brain', 'sales', 'workflows', 'accounting'].forEach(function(x){ $('v-' + x).className = 'view' + (x === v ? ' on' : ''); });
   $('rep').disabled = v !== 'sales' && v !== 'brain';
   if (v === 'workflows') loadWorkflows();
-  if (v === 'brain') { loadBrainActivity(); showBrain(); }
+  if (v === 'brain') { refreshBrainStatus(); refreshBrainWorkflowStatus(); loadBrainActivity(); showBrain(); }
   if (last) { if (v === 'accounting') renderAccounting(last); if (v === 'sales') render(last); }
 }
 document.querySelectorAll('nav.tabs button').forEach(function(b){ b.onclick = function(){ state.touched = true; setView(b.dataset.v); }; });
@@ -777,6 +869,7 @@ function dateChange(){ var f = $('from').value, t = $('to').value; if (f && t &&
 $('from').onchange = dateChange; $('to').onchange = dateChange;
 $('rep').onchange = function(){ state.rep = this.value; load(); };
 $('locBy').querySelectorAll('button').forEach(function(b){ b.onclick = function(){ state.locBy = b.dataset.l; $('locBy').querySelectorAll('button').forEach(function(x){ x.setAttribute('aria-pressed', x === b); }); renderOpps(last); }; });
+$('brainRetry').onclick = loadBrainActivity;
 $('askBtn').onclick = ask; $('q').onkeydown = function(e){ if (e.key === 'Enter') ask(); };
 var tip = $('tip');
 document.addEventListener('mousemove', function(e){

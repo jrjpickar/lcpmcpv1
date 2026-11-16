@@ -64,7 +64,7 @@ test('cannot pass Twilio credentials to an external pagination URL', async () =>
   });
   assert.equal(reads, 2);
   assert.equal(activity.coverage.calls.partial, true);
-  assert.equal(activity.totals.calls, 1);
+  assert.equal(activity.totals.calls, null);
 });
 
 test('Twilio-only mode requires auth on both Brain and MCP routes', async () => {
@@ -75,4 +75,42 @@ test('Twilio-only mode requires auth on both Brain and MCP routes', async () => 
   const valid = new Request('https://example.net/mcp', { method: 'POST', headers: { authorization: 'Bearer ' + process.env.DASHBOARD_KEY },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }) });
   assert.equal((await mcp(valid)).status, 200);
+});
+
+test('year-to-date reads use bounded date windows and combine each day once', async () => {
+  const from = '2026-01-01', to = '2026-11-15';
+  const count = new Map();
+  const activity = await loadActivity({ from, to }, async url => {
+    const calls = url.pathname.endsWith('/Calls.json');
+    const field = calls ? 'StartTime' : 'DateSent';
+    const day = url.searchParams.get(field + '>');
+    assert.ok(Date.parse(url.searchParams.get(field + '<')) - Date.parse(day) <= 15 * 86400000);
+    const key = field + day;
+    count.set(key, (count.get(key) || 0) + 1);
+    const at = day + 'T19:00:00Z';
+    return calls ? Response.json({ calls: [{ ...call, sid: 'CA' + day, start_time: at }] })
+      : Response.json({ messages: [{ ...sms, sid: 'SM' + day, date_sent: at }] });
+  });
+  assert.equal(count.size, 46);
+  assert.ok([...count.values()].every(n => n === 1));
+  assert.deepEqual(activity.totals, { calls: 23, conversations: 23, sms: 23, smsDelivered: 23 });
+  assert.equal(activity.daily.length, 23);
+  assert.deepEqual(activity.coverage.calls.missing, []);
+});
+
+test('retry recovers a transient provider error and incomplete windows cannot appear as full totals', async () => {
+  const longer = { from: '2026-10-20', to: '2026-11-04' };
+  let retries = 0;
+  const activity = await loadActivity(longer, async url => {
+    if (url.pathname.endsWith('/Messages.json')) {
+      if (!retries++) return new Response(null, { status: 429 });
+      return Response.json({ messages: [] });
+    }
+    if (url.searchParams.get('StartTime>') === longer.from) return Response.json({ calls: [call] });
+    return new Response(null, { status: 403 });
+  });
+  assert.equal(retries, 3);
+  assert.equal(activity.totals.calls, null);
+  assert.equal(activity.totals.sms, 0);
+  assert.deepEqual(activity.coverage.calls.missing, [{ from: '2026-11-03', to: '2026-11-04' }]);
 });

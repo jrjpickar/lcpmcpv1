@@ -55,7 +55,7 @@ A clickable 3D city built with Three.js. The LCP Brain (Groq core) sits in the m
 
 The activity cards read Calls and Messages directly from the configured Twilio account for the selected Pacific dates. They show outbound phone calls with a start time, calls over 60 seconds, outbound SMS with a send time, and SMS delivered or read. Rep filters use dedicated From numbers from `AGENT_ASSIGNMENTS`. Shared and unmapped numbers appear in all-rep totals. The cards show when MCP fetched Twilio and flag partial results.
 
-Drag to rotate, scroll to zoom, and click a building for details. The city uses the Sales report, so the dialer tower shows recorded dispositions. The control room shows configuration status. Twilio balance remains sample-only. The Workflows tab loads its own rolling window when opened. The factory can reuse that data for matching window lengths.
+Drag to rotate, scroll to zoom, and click a building for details. The city uses the Sales report, so the dialer tower shows recorded dispositions. The control room shows completed report reads, partial Twilio coverage, workflow feed freshness and a Groq model check. These are checks of this app’s connections. The water tower reads the current billing balance directly from Twilio when Brain opens. Balance is independent of the selected date range. The Workflows tab loads its own rolling window when opened. The factory can reuse that data for matching window lengths.
 
 Source: `src/brain3d.mjs`. Rebuild the bundle after editing it: `npm i && node scripts/build-brain.mjs` (writes `public/brain3d.js`, Three.js included, no CDN).
 
@@ -92,6 +92,7 @@ Publish `public` and use `netlify/functions` for functions. The repository's Net
 | `TWILIO_ACCOUNT_SID` | For activity | Account or subaccount SID that holds the call and SMS logs |
 | `TWILIO_API_KEY`, `TWILIO_API_SECRET` | One auth option | API key SID and secret with permission to list Calls and Messages for that account |
 | `TWILIO_AUTH_TOKEN` | Alternate auth | Auth token for that account. Use this when the API key pair is unset. |
+| `TWILIO_BILLING_ACCOUNT_SID`, `TWILIO_BILLING_AUTH_TOKEN` | Optional billing override | Use the main Twilio account credentials if the activity account is a subaccount or its key cannot read Balance. Set both. [Twilio subaccount billing](https://www.twilio.com/docs/iam/api/subaccounts) |
 | `AGENT_ASSIGNMENTS` | For activity rep filters | Copy the dialer's JSON. Each dedicated number needs `name` and `twilioPhoneNumber` in E.164. |
 | `DIALER_URL` | Yes | Dialer site URL, for example https://triplelinelcpv1.netlify.app |
 | `DIALER_EXPORT_KEY` | Yes | Same value as `DASHBOARD_EXPORT_KEY` on the dialer (already used by v2datadashboard) |
@@ -132,7 +133,7 @@ Signals are included in the existing tool outputs and in the Ask context.
 
 ## Netlify usage
 
-- Brain activity runs on demand with no polling or scheduled imports. It returns counts without call or message contents. Warm functions reuse and coalesce Twilio reads across rep filters for the same range. Current ranges cache for up to two minutes, historical ranges for up to 30 minutes. Large reads may be partial. Use a shorter date range if you hit the time or page limit.
+- Brain activity and billing checks run on demand with no polling or scheduled imports. The billing and Groq model checks share a two-minute cache and do not submit a Groq completion. It returns counts without call or message contents. Warm functions reuse and coalesce Twilio reads across rep filters for the same range. Current ranges cache for up to two minutes, historical ranges for up to 30 minutes. Brain loads long ranges in chunks with two requests in flight. MCP splits upstream reads into 14-day windows, retries Twilio rate limits and transient server errors, and reports missing windows. A channel with missing windows displays as unavailable until its selected range is complete. Use Retry activity to reload unsuccessful date ranges.
 - Sales keeps the existing live-report path and attribution window. It reuses common GHL and Ledger lookups. A first long-range Sales report can still be slow.
 - For the lowest spend, leave `ALERT_WEBHOOK_URL` unset until Slack alerts are needed. The existing five-minute scheduled function then exits before provider reads. Groq runs on Ask. Use a Deploy Preview for checks and combine changes into one production deploy per changed site. [Netlify credit meters](https://docs.netlify.com/manage/accounts-and-billing/billing/billing-for-credit-based-plans/how-credits-work/)
 
