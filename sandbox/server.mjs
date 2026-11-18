@@ -4,12 +4,15 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createJarvisHandler } from '../netlify/functions/jarvis.mjs';
+import { createJarvisMemoryHandler } from '../netlify/functions/jarvis-memory.mjs';
 import { createStudioHandler } from '../netlify/functions/lib/studio.mjs';
-import { localStudioStore } from './studio-store.mjs';
+import { localKeyedStore, localStudioStore } from './studio-store.mjs';
 process.env.DATA_MODE = 'sample';
 const studioFile = resolve(process.env.LCP_STUDIO_LOCAL_FILE || '.lcp-studio-local.json');
+const jarvisStore = localKeyedStore(resolve(process.env.LCP_JARVIS_LOCAL_DIR || '.lcp-jarvis-local'));
 const routes = {
-  '/api/jarvis': createJarvisHandler(),
+  '/api/jarvis': createJarvisHandler({ openStore: async () => jarvisStore }),
+  '/api/jarvis-memory': createJarvisMemoryHandler({ openStore: async () => jarvisStore }),
   '/api/studio': createStudioHandler(() => localStudioStore(studioFile)),
   '/api/brain-status': (await import('../netlify/functions/brain-status.mjs')).default,
   '/api/activity': (await import('../netlify/functions/activity.mjs')).default,
@@ -32,7 +35,7 @@ http.createServer(async (req, res) => {
     let size = 0;
     for await (const chunk of req) {
       size += chunk.length;
-      if ((url.pathname === '/api/studio' && size > 131072) || (url.pathname === '/api/jarvis' && size > 16384)) {
+      if ((url.pathname === '/api/studio' && size > 131072) || (url.pathname === '/api/jarvis' && size > 16384) || (url.pathname === '/api/jarvis-memory' && size > 8192)) {
         res.writeHead(413); res.end('Request body exceeds the size limit.'); return;
       }
       chunks.push(chunk);

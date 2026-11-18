@@ -18,7 +18,20 @@ The worker-based release's `LCP_JARVIS_URL`, `LCP_JARVIS_TOKEN`, and provider se
 - **Build developer** generates declarative Note, KPI, live Brain health cards, and multi-block panels for the Studio.
 - **QC developer** checks valid builds in a separate model call or reviews current draft modules. Approved builds can be imported into the editor and follow the existing preview, save, and publish workflow.
 
-Repository code editing, executing generated code, and persistent agent run history remain outside this patch.
+Repository code editing and executing generated code remain outside this patch.
+
+## Chat history and learning
+
+Each agent has its own saved chats, like ChatGPT. Select **New chat** to start one, or select a saved chat to continue it. Follow-ups send the last 6 turns to the model. Chats, feedback and learned memory are stored in the `lcp-jarvis` Netlify Blob store through `/api/jarvis-memory` and need the Studio key. The sandbox writes them to `.lcp-jarvis-local` (override with `LCP_JARVIS_LOCAL_DIR`).
+
+Agents improve from use in four ways:
+
+1. **Standing instructions.** Start a message with `remember:` or add one under **What this agent has learned**. The agent applies it to every later request.
+2. **Ratings.** Select **Helpful** to save the reply as an approved example. The agent reuses the closest 2 approved examples (keyword match) as style guides for similar requests. Select **Needs work** and add a correction to teach it what to change.
+3. **Reflection.** After every 5 ratings, or when you select **Reflect now**, one Groq call rewrites the agent's playbook (up to 10 rules) from its lessons and rated replies. Delete a lesson or select **Reset memory** to undo learning.
+4. **QC feedback.** Build developer receives the 3 most recent QC rejections and is told not to repeat them. Automatic QC sees the chat but not the Build playbook, so its review stays independent.
+
+The badge shows runs, the helpful rate and the count of active rules. Reflection needs `GROQ_API_KEY`.
 
 ## Local verification
 

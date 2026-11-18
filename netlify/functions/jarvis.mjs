@@ -1,6 +1,7 @@
 import { gooseModel } from './lib/goose.mjs';
 import { brainEditMessage, brainHealthIntent } from '../../public/jarvis-intent.mjs';
 import { compileAgents, groqModel, latestNews, roles } from './lib/jarvis-agents.mjs';
+import { createMemory, guidanceFor, historyFor, openJarvisStore, validId } from './lib/jarvis-memory.mjs';
 import { json } from './lib/auth.mjs';
 import { loadBrainStatus } from './lib/brain-status.mjs';
 import { buildReport, paramsFrom } from './lib/report.mjs';
@@ -35,14 +36,25 @@ async function systemContext(filters) {
   };
 }
 
-export function createJarvisHandler({ env = process.env, fetchImpl = fetch, readSystems = systemContext, createGooseModel = gooseModel } = {}) {
+const remember = /^\s*(?:\/remember\b|remember(?:\s+this)?\s*:)\s*/i;
+const agentNames = { systems: 'Systems and KPIs', market: 'Market news', build: 'Build developer', qc: 'QC developer' };
+
+function assistantRecord(result) {
+  const meta = {};
+  for (const name of ['trace', 'approved', 'buildSummary', 'engine', 'unavailable']) if (result[name] !== undefined) meta[name] = result[name];
+  if (result.sources?.length) meta.sources = result.sources.slice(0, 12);
+  if (result.modules?.length) meta.modules = result.modules;
+  return { content: result.answer || result.error || '', meta };
+}
+
+export function createJarvisHandler({ env = process.env, fetchImpl = fetch, readSystems = systemContext, createGooseModel = gooseModel, openStore = openJarvisStore } = {}) {
   let running = false;
   return async function handler(request) {
     if (request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405, { allow: 'POST' });
     if (!studioAuthorized(request, env.LCP_STUDIO_KEY || '')) return json({ error: 'Administrator key rejected.' }, 401);
     if (request.headers.get('origin') !== new URL(request.url).origin) return json({ error: 'Origin rejected.' }, 403);
     if (request.headers.get('content-type')?.split(';')[0] !== 'application/json') return json({ error: 'Expected JSON.' }, 415);
-    let role, prompt, previousTask, filters, modules, intent, engine;
+    let role, prompt, previousTask, filters, modules, intent, engine, threadId, newThread;
     const catalog = { pages, metrics, trends, moduleTypes: {
       note: 'Static text',
       metric: 'Live report KPI selected by metric ID',
@@ -51,12 +63,57 @@ export function createJarvisHandler({ env = process.env, fetchImpl = fetch, read
     } };
     try {
       const body = await readBody(request, 16384);
-      ({ role, prompt, previousTask = '', filters, modules, engine = 'groq' } = body);
+      ({ role, prompt, previousTask = '', filters, modules, engine = 'groq', threadId, newThread = false } = body);
       if (!roles.includes(role) || typeof prompt !== 'string' || !prompt.trim() || prompt.length > 1000) throw new TypeError();
+      if ((threadId !== undefined && !validId(threadId)) || typeof newThread !== 'boolean') throw new TypeError();
       if (!['groq', 'goose'].includes(engine) || (engine === 'goose' && role !== 'build')) throw new TypeError();
       if (typeof previousTask !== 'string' || previousTask.length > 1000) throw new TypeError();
+    } catch {
+      return json({ error: 'Invalid agent request or module configuration.' }, 400);
+    }
+
+    // Chat mode: load the thread and the agent's learned memory. Stateless calls skip storage.
+    const requestedRole = role;
+    let memory = null, thread = null, learned = null;
+    if (threadId || newThread) {
+      try {
+        memory = createMemory(await openStore());
+        [thread, learned] = await Promise.all([threadId ? memory.getThread(role, threadId) : null, memory.getMemory(role)]);
+      } catch {
+        return json({ error: 'JARVIS memory storage is unavailable.' }, 503);
+      }
+      if (threadId && !thread) return json({ error: 'Chat not found. Start a new chat.' }, 404);
+      if (!previousTask) previousTask = (thread?.messages || []).findLast(message => message.role === 'user')?.content.slice(0, 1000) || '';
+    }
+    async function reply(result, status = 200) {
+      if (!memory || status !== 200) return json(result, status);
+      try {
+        thread ??= await memory.createThread(requestedRole, prompt);
+        const { reply: stored, title } = await memory.appendExchange(requestedRole, thread.id, prompt.trim(), assistantRecord(result));
+        if (result.trace && !result.lesson) {
+          await memory.recordRun(requestedRole, { approved: result.approved });
+          if (result.approved === false && result.trace.includes('qc') && requestedRole === 'build') await memory.recordQcFinding('build', result.answer);
+        }
+        return json({ ...result, threadId: thread.id, messageId: stored.id, title });
+      } catch (error) {
+        return json({ ...result, memoryError: error.agentStatus === 404 ? 'Chat not found.' : 'The reply was not saved to chat history.' });
+      }
+    }
+
+    const lesson = remember.exec(prompt);
+    if (lesson && memory) {
+      const text = prompt.slice(lesson[0].length);
+      try {
+        const saved = await memory.addLesson(requestedRole, text);
+        return reply({ answer: 'Saved. The ' + agentNames[requestedRole] + ' agent will follow this on every future request: ' + saved.text, lesson: saved.id });
+      } catch (error) {
+        return json({ error: error.agentStatus === 400 ? 'Add the instruction after "remember:".' : 'The lesson was not saved.' }, error.agentStatus === 400 ? 400 : 503);
+      }
+    }
+
+    try {
       intent = ['build', 'systems'].includes(role) ? brainHealthIntent(prompt, previousTask) : null;
-      if (intent === 'edit' || intent === 'read') return json({ answer: intent === 'edit' ? brainEditMessage : 'Open Brain 3D and select System health for the current integration checks.', trace: ['systems'] });
+      if (intent === 'edit' || intent === 'read') return reply({ answer: intent === 'edit' ? brainEditMessage : 'Open Brain 3D and select System health for the current integration checks.', trace: ['systems'] });
       if (filters !== undefined && (!filters || typeof filters !== 'object' || Array.isArray(filters))) throw new TypeError();
       if (role === 'systems' && intent !== 'build' && !filters) throw new TypeError();
       if (intent !== 'build' && role === 'qc') {
@@ -86,8 +143,9 @@ export function createJarvisHandler({ env = process.env, fetchImpl = fetch, read
       const model = groqModel(key, fetchImpl);
       const graph = compileAgents(model, () => latestNews(fetchImpl), () => readSystems(filters),
         engine === 'goose' ? createGooseModel(key) : model);
-      const { result } = await graph.invoke({ role, prompt: prompt.trim(), previousTask, context }, { recursionLimit: 8 });
-      return json(engine === 'goose' ? { ...result, engine } : result);
+      const guidance = memory ? { memory: guidanceFor(role, role === requestedRole ? learned : await memory.getMemory(role), prompt), history: historyFor(thread) } : null;
+      const { result } = await graph.invoke({ role, prompt: prompt.trim(), previousTask, context, guidance }, { recursionLimit: 8 });
+      return reply(engine === 'goose' ? { ...result, engine } : result);
     } catch (error) {
       return json({ error: error.agentStatus ? error.message : 'JARVIS could not complete the task. Check your provider settings and retry.' }, error.agentStatus || 502);
     } finally {
