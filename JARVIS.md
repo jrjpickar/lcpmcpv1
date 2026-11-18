@@ -15,7 +15,7 @@ The worker-based release's `LCP_JARVIS_URL`, `LCP_JARVIS_TOKEN`, and provider se
 
 - **Systems and KPIs** reads the selected report and comparison period and sends aggregate metrics and status to the model.
 - **Market news** reads Federal Reserve and Census housing feeds and proposes measurable improvements. The sources cover national information.
-- **Build developer** generates declarative Note, KPI, and live Brain health cards for the Studio.
+- **Build developer** generates declarative Note, KPI, live Brain health cards, and multi-block panels for the Studio.
 - **QC developer** checks valid builds in a separate model call or reviews current draft modules. Approved builds can be imported into the editor and follow the existing preview, save, and publish workflow.
 
 Repository code editing, executing generated code, and persistent agent run history remain outside this patch.
@@ -29,3 +29,15 @@ Run `npm ci`, `npm test`, and `npm run build`. To use the local dashboard, expor
 Ask “Show system health on Brain” to see the latest statuses available to Brain 3D. Ask “Add a live system health card on Brain” to create a draft that uses the same status data. The agents keep the preceding task for the selected role while Studio is open. A supported health card can be previewed, saved, and published through the registry.
 
 Brain and legacy Ask default to `openai/gpt-oss-20b`. If Netlify explicitly sets `GROQ_MODEL` to a retired model, update it or clear the override. [Groq model deprecations](https://console.groq.com/docs/deprecations)
+
+## Build from Brain
+
+Choose one of the four avatars on Brain 3D to open a prompt for that agent. The Studio administrator key unlocks the same session on both tabs. For example, ask Build to “Build a Brain panel with opportunity count, opportunity trend, and live system health.” Build can request the filtered aggregate report before binding the blocks. QC checks the proposal, then you can import it into Studio, preview it, save the draft, and publish. Supported modules publish through Netlify Blobs without a repository edit or new deploy.
+
+Panels can combine notes, report KPIs, report trends, and Brain status. Opportunity bindings use the existing HighLevel opportunity count and show a missing-source message when that read fails. The build service adds modules to the runtime catalog. Changes to the dashboard shell and new integrations need a platform update.
+
+## Goose build engine
+
+Select Build developer, then choose **Goose** under Build engine. Netlify runs the official Goose CLI headlessly with the existing Groq Free key. Report inspection and module validation run through the same site capabilities. Independent QC uses a direct Groq call. Each CLI run uses a temporary profile and a time limit. Shell and filesystem extensions are disabled.
+
+The deployment packages the native Linux binary. The official CLI starts locally, and terminal tests cover the engine selection, subprocess boundary, and draft handoff with controlled responses. The Linux deployment and live inference still need a test deploy.

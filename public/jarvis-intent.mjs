@@ -9,7 +9,7 @@ export function brainHealthIntent(prompt, previousTask = '') {
   if (/\b(?:add|create|build|change|modify|replace|redesign|edit|move|rename|remove|duplicate)\b/i.test(currentTask)) {
     if (/\b(?:static|plain[- ]text) note\b/i.test(currentTask)) return null;
     if (/^\s*(?:(?:actually|please)[,\s]+)?(?:show|check|read|report|summarize|how|what|is|are)\b/i.test(prompt)) return 'read';
-  if (/\b(?:add|create|build)\b/i.test(currentTask) && /\b(?:card|module|widget)\b/i.test(currentTask)
+  if (/\b(?:add|create|build)\b/i.test(currentTask) && /\b(?:card|module|widget|panel)\b/i.test(currentTask)
         && !/\b(?:edit|replace|modify|redesign|remove|rename|move)\b/i.test(currentTask)) return 'build';
     return 'edit';
   }

@@ -16,6 +16,7 @@
     "three": "^0.187.0"
   },
   "dependencies": {
+    "@aaif/goose-acp": "1.60.1",
     "@langchain/core": "1.4.1",
     "@langchain/langgraph": "1.7.5",
     "@netlify/blobs": "^10.7.13",

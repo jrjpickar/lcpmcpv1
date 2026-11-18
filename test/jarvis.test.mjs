@@ -134,3 +134,85 @@ test('Brain health uses previous task for clarifications, but an explicit lookup
   assert.equal(brainHealthIntent('Actually, show system health on Brain', 'Add a card'), 'read');
   assert.match(formatBrainHealth({ sources: [{ name: 'HighLevel', status: 'warn', detail: '2 report read issue(s)' }] }), /HighLevel · Warning · 2 report read issue/);
 });
+
+test('Build can request report evidence and deliver a QC-checked panel with multiple live bindings', async () => {
+  const filters = { preset: '7d' };
+  const panel = { type: 'panel', page: 'brain', title: 'Opportunity performance', blocks: [
+    { type: 'metric', title: 'HighLevel opportunities', metric: 'opportunities' },
+    { type: 'trend', title: 'Opportunity trend', series: 'opportunities' },
+    { type: 'health', title: 'Connector status' },
+  ] };
+  let reportReads = 0;
+  let modelCalls = 0;
+  const run = createJarvisHandler({ env, readSystems: async selected => {
+    reportReads++;
+    assert.deepEqual(selected, filters);
+    return { current: { opportunities: 12 }, coverage: { ghl: true } };
+  }, fetchImpl: async (_url, options) => {
+    modelCalls++;
+    const { messages } = JSON.parse(options.body);
+    const context = JSON.parse(messages[1].content);
+    if (modelCalls === 1) return modelResponse({ inspectReport: true });
+    if (modelCalls === 2) {
+      assert.equal(context.report.current.opportunities, 12);
+      return modelResponse({ summary: 'Live opportunity data and status', modules: [panel] });
+    }
+    assert.deepEqual(context.modules, [panel]);
+    return modelResponse({ approved: true, findings: 'Live report bindings reviewed.' });
+  } });
+  const answer = await run(request({ role: 'build', filters, prompt: 'Build a Brain panel with opportunity metrics and health' }));
+  assert.equal(answer.status, 200);
+  const result = await answer.json();
+  assert.deepEqual(result.trace, ['build', 'qc']);
+  assert.deepEqual(result.modules[0].blocks, panel.blocks);
+  assert.equal(modelCalls, 3);
+  assert.equal(reportReads, 1);
+});
+
+test('Goose is an optional build engine and QC still uses the independent direct model', async () => {
+  let builds = 0;
+  let reviews = 0;
+  const run = createJarvisHandler({
+    env,
+    createGooseModel: key => async (_instruction, context) => {
+      builds++;
+      assert.equal(key, env.GROQ_API_KEY);
+      assert.equal(context.request, 'Add Dials to Sales');
+      return { summary: 'Goose proposal', modules: [draft] };
+    },
+    fetchImpl: async (_url, options) => {
+      reviews++;
+      assert.match(JSON.parse(options.body).messages[0].content, /independent QC/);
+      return modelResponse({ approved: true, findings: 'Correct binding.' });
+    },
+  });
+  const result = await (await run(request({ role: 'build', engine: 'goose', prompt: 'Add Dials to Sales' }))).json();
+  assert.equal(result.engine, 'goose');
+  assert.equal(result.modules[0].metric, 'dials');
+  assert.deepEqual(result.trace, ['build', 'qc']);
+  assert.equal(builds, 1);
+  assert.equal(reviews, 1);
+});
+
+test('Goose headless runner uses a temporary profile, bounded execution and a restricted environment', async () => {
+  const { gooseModel } = await import('../netlify/functions/lib/goose.mjs');
+  const { access, readFile } = await import('node:fs/promises');
+  let temporary;
+  const model = gooseModel('fixture-key', {
+    binary: () => '/fixture/goose',
+    execute: async (file, argv, options) => {
+      assert.equal(file, '/fixture/goose');
+      assert.ok(argv.includes('--no-profile') && argv.includes('--no-session'));
+      assert.ok(!argv.some(value => value.startsWith('--with-')));
+      assert.equal(options.env.GROQ_API_KEY, 'fixture-key');
+      assert.equal(options.env.DASHBOARD_KEY, undefined);
+      assert.equal(options.env.HOME, options.cwd);
+      assert.ok(options.timeout <= 12000);
+      temporary = options.cwd;
+      assert.match(await readFile(argv.at(-1), 'utf8'), /Fixture request/);
+      return { stdout: '{"summary":"Goose result","modules":[]}' };
+    },
+  });
+  assert.equal((await model('Fixture instruction', { request: 'Fixture request' })).summary, 'Goose result');
+  await assert.rejects(access(temporary), { code: 'ENOENT' });
+});

@@ -9,6 +9,9 @@
 [functions]
   node_bundler = "esbuild"
 
+[functions.jarvis]
+  included_files = ["node_modules/@aaif/goose-binary-linux-*/package.json", "node_modules/@aaif/goose-binary-linux-*/bin/goose"]
+
 [[headers]]
   for = "/*"
   [headers.values]

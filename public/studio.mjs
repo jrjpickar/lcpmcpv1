@@ -1,6 +1,6 @@
 import { formatBrainHealth } from './jarvis-intent.mjs';
-import { createJarvisPanel } from './jarvis.mjs';
-import { initialConfig, metrics, pages, salesWidgets, validateConfig } from './studio-schema.mjs';
+import { agents, createJarvisPanel } from './jarvis.mjs';
+import { initialConfig, metrics, pages, salesWidgets, trends, validateConfig } from './studio-schema.mjs';
 
 function element(tag, props = {}, ...children) {
   const node = Object.assign(document.createElement(tag), props);
@@ -31,21 +31,61 @@ function card(title, ...nodes) {
   return element('section', { className: 'card studio-card' }, element('h2', {}, title), ...nodes);
 }
 
+function hasHealth(module) {
+  return module.type === 'health' || module.blocks?.some(block => block.type === 'health');
+}
+
+function metricValue(metric, report) {
+  const value = report?.kpis?.[metric];
+  const format = metric === 'connectRate' ? { style: 'percent', maximumFractionDigits: 1 }
+    : metric === 'pipelineValue' ? { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }
+    : { maximumFractionDigits: 1 };
+  if (['opportunities', 'pipelineValue'].includes(metric) && report?.sources?.mode !== 'sample'
+      && (!report?.sources?.ghl || report.sources.warnings?.some(warning => warning.startsWith('GHL opportunities')))) {
+    return 'HighLevel report unavailable';
+  }
+  return Number.isFinite(value) ? value.toLocaleString(undefined, format) : '—';
+}
+
+function trendView(series, report) {
+  if (series === 'opportunities' && metricValue('opportunities', report) === 'HighLevel report unavailable') {
+    return element('p', {}, 'HighLevel report unavailable');
+  }
+  const values = (report?.trend?.[series] || []).slice(-30);
+  if (!values.length) return element('p', {}, 'Trend unavailable');
+  const max = Math.max(1, ...values);
+  const chart = element('div', { className: 'studio-trend' });
+  chart.setAttribute('aria-hidden', 'true');
+  for (const number of values) {
+    const bar = element('span', { title: String(number) });
+    bar.style.height = Math.max(2, number / max * 100) + '%';
+    chart.append(bar);
+  }
+  return element('div', {}, chart, element('p', { className: 'meta' }, 'Latest bucket · ' + values.at(-1).toLocaleString()));
+}
+
 function moduleCard(module, report, health) {
   let value;
+  if (module.type === 'panel') {
+    const grid = element('div', { className: 'studio-panel-blocks' }, ...module.blocks.map(block => element('section', {},
+      element('h3', {}, block.title),
+      block.type === 'trend' ? trendView(block.series, report)
+        : block.type === 'metric' ? element('strong', { className: 'studio-config-metric' }, metricValue(block.metric, report))
+        : element('p', { className: 'studio-config-note' }, block.type === 'health' ? formatBrainHealth(health) : block.text),
+    )));
+    return card(module.title, grid);
+  }
   if (module.type === 'note') {
     value = element('p', { className: 'studio-config-note' }, module.text);
   } else if (module.type === 'health') {
     value = element('p', { className: 'studio-config-note' }, formatBrainHealth(health));
   } else {
-    const metric = report?.kpis?.[module.metric];
-    const format = module.metric === 'connectRate' ? { style: 'percent', maximumFractionDigits: 1 } : { maximumFractionDigits: 1 };
-    value = element('strong', { className: 'studio-config-metric' }, Number.isFinite(metric) ? metric.toLocaleString(undefined, format) : '—');
+    value = element('strong', { className: 'studio-config-metric' }, metricValue(module.metric, report));
   }
   return card(module.title, value);
 }
 
-export function mountStudio({ root, dashboardKey, view, report, filters, brainHealth, openBrain }) {
+export function mountStudio({ root, dashboardKey, view, report, filters, brainHealth, openBrain, openStudio, brainAgents }) {
   const studioTab = document.querySelector('[data-v="studio"]');
   const tabs = new Map(Object.keys(pages).map(id => [id, document.querySelector('[data-v="' + id + '"]')]));
   const sales = document.getElementById('v-sales');
@@ -70,11 +110,12 @@ export function mountStudio({ root, dashboardKey, view, report, filters, brainHe
   let moduleReport = null;
   let moduleConfig = null;
   let moduleHealth = '';
-  const jarvis = createJarvisPanel({
+  const sharedAgentOptions = {
     key: () => adminKey,
     filters,
     brainHealth,
     openBrain,
+    previousTasks: new Map(),
     draftModules: () => working.modules,
     importModules(modules) {
       if (busy) throw new Error('Wait for the Studio action to finish.');
@@ -84,8 +125,71 @@ export function mountStudio({ root, dashboardKey, view, report, filters, brainHe
       preview = false;
       status = 'Unsaved changes.';
       render();
+      if (view() === 'brain') openStudio();
     },
-  });
+  };
+  const jarvis = createJarvisPanel(sharedAgentOptions);
+  const brainJarvis = createJarvisPanel(sharedAgentOptions);
+  const brainAgentBody = element('div', { hidden: true });
+  const brainUnlockStatus = element('p', { className: 'studio-status' });
+  brainUnlockStatus.setAttribute('role', 'status');
+  let brainRole = 'systems';
+
+  const brainCredential = input('', 512);
+  brainCredential.type = 'password';
+  brainCredential.required = true;
+  const brainUnlock = element('form', {
+    className: 'studio-row',
+    async onsubmit(event) {
+      event.preventDefault();
+      if (busy) return;
+      const key = brainCredential.value;
+      brainCredential.value = '';
+      busy = true;
+      brainCredential.disabled = true;
+      try {
+        adminKey = key;
+        sync(await api(true));
+        render();
+        showBrainAgent();
+      } catch (error) {
+        adminKey = '';
+        brainUnlockStatus.textContent = error.message;
+      } finally {
+        busy = false;
+        brainCredential.disabled = false;
+        render();
+      }
+    },
+  }, field('Studio administrator key', brainCredential), element('button', { className: 'btn' }, 'Unlock JARVIS'), brainUnlockStatus);
+
+  const avatarLabels = { systems: 'SY', market: 'MK', build: 'DEV', qc: 'QC' };
+  const avatars = element('div', { className: 'brain-agent-avatars' });
+  const avatarButtons = new Map();
+  for (const [id, label] of Object.entries(avatarLabels)) {
+    const control = element('button', {
+      className: 'brain-agent-button', type: 'button',
+      onclick() { brainRole = id; showBrainAgent(); },
+    }, element('span', { className: 'brain-agent-avatar avatar-' + id }, label),
+      id === 'build' ? 'Build developer' : agents[id]);
+    control.firstElementChild.setAttribute('aria-hidden', 'true');
+    control.setAttribute('aria-pressed', 'false');
+    avatarButtons.set(id, control);
+    avatars.append(control);
+  }
+  brainAgents.append(avatars, brainAgentBody);
+
+  function showBrainAgent() {
+    brainAgentBody.hidden = false;
+    for (const [id, button] of avatarButtons) button.setAttribute('aria-pressed', String(id === brainRole));
+    if (saved) {
+      brainAgentBody.replaceChildren(brainJarvis);
+      brainJarvis.selectAgent(brainRole);
+    } else {
+      brainAgentBody.replaceChildren(brainUnlock);
+      brainCredential.focus();
+    }
+  }
 
   async function api(admin = false, command) {
     const headers = admin ? { 'x-lcp-studio-key': adminKey } : { 'x-lcp-key': dashboardKey };
@@ -106,7 +210,7 @@ export function mountStudio({ root, dashboardKey, view, report, filters, brainHe
     moduleHost.hidden = current === 'studio';
     if (moduleHost.hidden) return;
     const visible = published.modules.filter(module => module.page === current);
-    const health = visible.some(module => module.type === 'health') ? brainHealth() : undefined;
+    const health = visible.some(hasHealth) ? brainHealth() : undefined;
     const healthKey = health ? formatBrainHealth(health) : '';
     if (moduleView === current && moduleReport === currentReport && moduleConfig === published && moduleHealth === healthKey) return;
     moduleView = current;
@@ -254,7 +358,7 @@ export function mountStudio({ root, dashboardKey, view, report, filters, brainHe
         return element('div', { className: 'studio-preview' },
           element('h3', {}, title),
           ...(id === 'sales' ? [element('p', {}, visibleSales.join(' · ') || 'All built-in Sales groups hidden')] : []),
-          ...working.modules.filter(module => module.page === id).map(module => moduleCard(module, report(), module.type === 'health' ? brainHealth() : undefined)));
+          ...working.modules.filter(module => module.page === id).map(module => moduleCard(module, report(), hasHealth(module) ? brainHealth() : undefined)));
       });
       previewHost.replaceChildren(...layout);
     }
@@ -305,7 +409,9 @@ export function mountStudio({ root, dashboardKey, view, report, filters, brainHe
       }) : select(metrics, module.metric, event => { module.metric = event.target.value; edited(); });
       return sortableRow(working.modules, index,
         field('Title', input(module.title, 80, event => { module.title = event.target.value; edited(); })),
-        ...(module.type === 'health' ? [element('span', {}, 'Brain 3D · Live system health')] : [
+        ...(module.type === 'panel' ? [element('span', {}, module.blocks.map(block => block.title).join(' · ')),
+          ...(!hasHealth(module) ? [field('Page', select(pages, module.page, event => { module.page = event.target.value; edited(); }))] : [])]
+          : hasHealth(module) ? [element('span', {}, 'Brain 3D · Live system health')] : [
           field('Page', select(pages, module.page, event => { module.page = event.target.value; edited(); })),
           field(module.type === 'note' ? 'Note' : 'Report KPI', text),
         ]),

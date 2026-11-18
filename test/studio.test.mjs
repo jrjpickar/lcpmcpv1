@@ -37,6 +37,14 @@ test('Studio protects drafts, persists releases, rejects conflicts and restores 
   config.sales[0].hidden = true;
   config.modules.push({ id: 'dial-count', type: 'metric', page: 'sales', title: 'Dial count', metric: 'dials' });
 
+  const panel = { id: 'brain-panel', type: 'panel', page: 'brain', title: 'Lead operations', blocks: [
+    { type: 'metric', title: 'Opportunities', metric: 'opportunities' },
+    { type: 'trend', title: 'Opportunity trend', series: 'opportunities' },
+    { type: 'health', title: 'Read status' },
+  ] };
+  config.modules.push(panel);
+  const malformed = { ...config, modules: [{ ...panel, page: 'sales' }] };
+  assert.equal((await post({ action: 'save', revision: 0, config: malformed })).status, 400);
   const save = { action: 'save', revision: 0, config };
   assert.equal((await post(save, { origin: 'https://other.example' })).status, 403);
   assert.equal((await post({ ...save, config: { ...config, modules: [{ type: 'javascript' }] } })).status, 400);

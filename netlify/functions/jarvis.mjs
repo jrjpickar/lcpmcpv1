@@ -1,10 +1,11 @@
+import { gooseModel } from './lib/goose.mjs';
 import { brainEditMessage, brainHealthIntent } from '../../public/jarvis-intent.mjs';
 import { compileAgents, groqModel, latestNews, roles } from './lib/jarvis-agents.mjs';
 import { json } from './lib/auth.mjs';
 import { loadBrainStatus } from './lib/brain-status.mjs';
 import { buildReport, paramsFrom } from './lib/report.mjs';
 import { readBody, studioAuthorized } from './lib/studio.mjs';
-import { initialConfig, metrics, pages, validateConfig } from '../../public/studio-schema.mjs';
+import { initialConfig, metrics, pages, trends, validateConfig } from '../../public/studio-schema.mjs';
 
 async function systemContext(filters) {
   const [report, health] = await Promise.all([
@@ -34,27 +35,30 @@ async function systemContext(filters) {
   };
 }
 
-export function createJarvisHandler({ env = process.env, fetchImpl = fetch, readSystems = systemContext } = {}) {
+export function createJarvisHandler({ env = process.env, fetchImpl = fetch, readSystems = systemContext, createGooseModel = gooseModel } = {}) {
   let running = false;
   return async function handler(request) {
     if (request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405, { allow: 'POST' });
     if (!studioAuthorized(request, env.LCP_STUDIO_KEY || '')) return json({ error: 'Administrator key rejected.' }, 401);
     if (request.headers.get('origin') !== new URL(request.url).origin) return json({ error: 'Origin rejected.' }, 403);
     if (request.headers.get('content-type')?.split(';')[0] !== 'application/json') return json({ error: 'Expected JSON.' }, 415);
-    let role, prompt, previousTask, filters, modules, intent;
-    const catalog = { pages, metrics, moduleTypes: {
+    let role, prompt, previousTask, filters, modules, intent, engine;
+    const catalog = { pages, metrics, trends, moduleTypes: {
       note: 'Static text',
       metric: 'Live report KPI selected by metric ID',
       health: 'Live System health from Brain 3D. Only page brain. No additional fields.',
+      panel: 'Composes 1 to 6 titled blocks. Supports note with text, metric with metric, trend with series, or health on Brain with no extra fields.',
     } };
     try {
       const body = await readBody(request, 16384);
-      ({ role, prompt, previousTask = '', filters, modules } = body);
+      ({ role, prompt, previousTask = '', filters, modules, engine = 'groq' } = body);
       if (!roles.includes(role) || typeof prompt !== 'string' || !prompt.trim() || prompt.length > 1000) throw new TypeError();
+      if (!['groq', 'goose'].includes(engine) || (engine === 'goose' && role !== 'build')) throw new TypeError();
       if (typeof previousTask !== 'string' || previousTask.length > 1000) throw new TypeError();
       intent = ['build', 'systems'].includes(role) ? brainHealthIntent(prompt, previousTask) : null;
       if (intent === 'edit' || intent === 'read') return json({ answer: intent === 'edit' ? brainEditMessage : 'Open Brain 3D and select System health for the current integration checks.', trace: ['systems'] });
-      if (intent !== 'build' && role === 'systems' && (!filters || typeof filters !== 'object' || Array.isArray(filters))) throw new TypeError();
+      if (filters !== undefined && (!filters || typeof filters !== 'object' || Array.isArray(filters))) throw new TypeError();
+      if (role === 'systems' && intent !== 'build' && !filters) throw new TypeError();
       if (intent !== 'build' && role === 'qc') {
         validateConfig({ ...initialConfig(), modules });
         if (Buffer.byteLength(JSON.stringify(modules)) > 6000) return json({ error: 'Reduce the draft modules to 6 KB for one QC review.' }, 400);
@@ -79,9 +83,11 @@ export function createJarvisHandler({ env = process.env, fetchImpl = fetch, read
         }
       }
       if (role === 'qc') context.modules = modules;
-      const graph = compileAgents(groqModel(key, fetchImpl), () => latestNews(fetchImpl));
+      const model = groqModel(key, fetchImpl);
+      const graph = compileAgents(model, () => latestNews(fetchImpl), () => readSystems(filters),
+        engine === 'goose' ? createGooseModel(key) : model);
       const { result } = await graph.invoke({ role, prompt: prompt.trim(), previousTask, context }, { recursionLimit: 8 });
-      return json(result);
+      return json(engine === 'goose' ? { ...result, engine } : result);
     } catch (error) {
       return json({ error: error.agentStatus ? error.message : 'JARVIS could not complete the task. Check your provider settings and retry.' }, error.agentStatus || 502);
     } finally {

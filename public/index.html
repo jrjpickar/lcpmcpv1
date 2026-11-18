@@ -206,7 +206,7 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
     <section>Outbound calls<strong id="brainCalls">—</strong><small id="brainCallDetail"></small></section>
     <section>Outbound SMS<strong id="brainSms">—</strong><small id="brainSmsDetail"></small></section>
     <div class="meta" id="brainActivityMeta" aria-live="polite"></div><button type="button" class="btn" id="brainRetry" hidden>Retry activity</button>
-  </div><div class="brain" id="brain3d"><div class="brain-top"><h2>LCP Brain</h2><div class="meta" id="brainMeta"></div></div><div class="brain-hint">Drag to rotate · scroll to zoom · click a building</div></div></div>
+  </div><div id="brainAgents"></div><div class="brain" id="brain3d"><div class="brain-top"><h2>LCP Brain</h2><div class="meta" id="brainMeta"></div></div><div class="brain-hint">Drag to rotate · scroll to zoom · click a building</div></div></div>
 
   <!-- SALES -->
   <div class="view on" id="v-sales">
@@ -866,7 +866,7 @@ function setView(v){
   ['brain', 'sales', 'workflows', 'accounting', 'studio'].forEach(function(x){ $('v-' + x).className = 'view' + (x === v ? ' on' : ''); });
   $('rep').disabled = v !== 'sales' && v !== 'brain';
   if (v === 'workflows') loadWorkflows();
-  if (v === 'brain') { refreshBrainStatus(); refreshBrainWorkflowStatus(); loadBrainActivity(); showBrain(); }
+  if (v === 'brain') { if (!STATIC) loadStudio().catch(function(){}); refreshBrainStatus(); refreshBrainWorkflowStatus(); loadBrainActivity(); showBrain(); }
   if (v === 'studio') openStudio();
   if (studio) studio.refreshModules();
   if (last) { if (v === 'accounting') renderAccounting(last); if (v === 'sales') render(last); }
@@ -884,6 +884,8 @@ function loadStudio(){
           sample: last?.sources?.mode === 'sample',
         }; },
         openBrain: function(){ state.touched = true; setView('brain'); },
+        openStudio: function(){ state.touched = true; setView('studio'); },
+        brainAgents: $('brainAgents'),
       });
       return studio;
     }).catch(function(error){ studioLoad = null; throw error; });

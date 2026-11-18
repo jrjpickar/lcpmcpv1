@@ -5,8 +5,20 @@ export const salesWidgets = {
 };
 export const metrics = {
   dials: 'Dials', opportunities: 'Opportunities', smsSent: 'SMS sent',
-  connectRate: 'Connect rate', talkMinutes: 'Talk minutes',
+  connectRate: 'Connect rate', talkMinutes: 'Talk minutes', pipelineValue: 'Opportunity pipeline value',
 };
+
+export const trends = { dials: 'Dials', opportunities: 'Opportunities', sms: 'SMS sent' };
+
+function validateBlock(block) {
+  check(block && ['note', 'metric', 'trend', 'health'].includes(block.type), 'Unknown panel block.');
+  const value = { note: 'text', metric: 'metric', trend: 'series' }[block.type];
+  fields(block, ['type', 'title', ...(value ? [value] : [])]);
+  label(block.title, 80);
+  if (block.type === 'note') label(block.text, 1200);
+  if (block.type === 'metric') check(Object.hasOwn(metrics, block.metric), 'Unknown report metric.');
+  if (block.type === 'trend') check(Object.hasOwn(trends, block.series), 'Unknown report trend.');
+}
 
 export const initialConfig = () => ({
   schema: 1,
@@ -50,8 +62,8 @@ export function validateConfig(config) {
   check(Array.isArray(config.modules) && config.modules.length <= 20, 'A layout supports up to 20 modules.');
   const ids = new Set();
   for (const module of config.modules) {
-    check(['note', 'metric', 'health'].includes(module?.type), 'Unsupported module type.');
-    const valueFields = module.type === 'note' ? ['text'] : module.type === 'metric' ? ['metric'] : [];
+    check(['note', 'metric', 'health', 'panel'].includes(module?.type), 'Unsupported module type.');
+    const valueFields = { note: ['text'], metric: ['metric'], panel: ['blocks'] }[module.type] || [];
     fields(module, ['id', 'page', 'title', 'type', ...valueFields]);
     check(typeof module.id === 'string' && /^[a-z0-9-]{1,48}$/.test(module.id) && !ids.has(module.id), 'Invalid or duplicate module ID.');
     ids.add(module.id);
@@ -59,7 +71,13 @@ export function validateConfig(config) {
     label(module.title, 80);
     if (module.type === 'note') label(module.text, 1200);
     if (module.type === 'metric') check(Object.hasOwn(metrics, module.metric), 'Unknown report metric.');
-    if (module.type === 'health') check(module.page === 'brain', 'System health cards belong on Brain 3D.');
+    if (module.type === 'panel') {
+      check(Array.isArray(module.blocks) && module.blocks.length >= 1 && module.blocks.length <= 6, 'A panel supports 1 to 6 blocks.');
+      module.blocks.forEach(validateBlock);
+    }
+    if (module.type === 'health' || module.blocks?.some(block => block.type === 'health')) {
+      check(module.page === 'brain', 'System health belongs on Brain 3D.');
+    }
   }
   return config;
 }
