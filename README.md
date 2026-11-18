@@ -97,7 +97,7 @@ Publish `public` and use `netlify/functions` for functions. The repository's Net
 | `DIALER_URL` | Yes | Dialer site URL, for example https://triplelinelcpv1.netlify.app |
 | `DIALER_EXPORT_KEY` | Yes | Same value as `DASHBOARD_EXPORT_KEY` on the dialer (already used by v2datadashboard) |
 | `GROQ_API_KEY` | Recommended | Groq API key. Without it the page shows rule-based insights |
-| `GROQ_MODEL` | Optional | Default `llama-3.3-70b-versatile`. Check Groq's model list and change if that model is retired |
+| `GROQ_MODEL` | Optional | Default `openai/gpt-oss-20b`. Check Groq's model list and change if that model is retired |
 | `MCP_KEY` | Recommended | Bearer token for `/mcp`. Falls back to `DASHBOARD_KEY` |
 | `LEDGER_URL` | Optional | LocalCare Ledger site URL |
 | `LEDGER_EXPORT_KEY` | Optional | Same value as `MCP_EXPORT_KEY` on the Ledger (24+ characters). The supplied Ledger already includes `netlify/functions/mcp-export.mts` |

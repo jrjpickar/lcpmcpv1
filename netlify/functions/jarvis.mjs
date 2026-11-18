@@ -1,3 +1,4 @@
+import { brainEditMessage, brainHealthIntent } from '../../public/jarvis-intent.mjs';
 import { compileAgents, groqModel, latestNews, roles } from './lib/jarvis-agents.mjs';
 import { json } from './lib/auth.mjs';
 import { loadBrainStatus } from './lib/brain-status.mjs';
@@ -40,17 +41,21 @@ export function createJarvisHandler({ env = process.env, fetchImpl = fetch, read
     if (!studioAuthorized(request, env.LCP_STUDIO_KEY || '')) return json({ error: 'Administrator key rejected.' }, 401);
     if (request.headers.get('origin') !== new URL(request.url).origin) return json({ error: 'Origin rejected.' }, 403);
     if (request.headers.get('content-type')?.split(';')[0] !== 'application/json') return json({ error: 'Expected JSON.' }, 415);
-    const key = env.GROQ_API_KEY;
-    if (!key) return json({ error: 'Set GROQ_API_KEY from a Groq Free project.' }, 503);
-
-    let role, prompt, filters, modules;
-    const catalog = { pages, metrics };
+    let role, prompt, previousTask, filters, modules, intent;
+    const catalog = { pages, metrics, moduleTypes: {
+      note: 'Static text',
+      metric: 'Live report KPI selected by metric ID',
+      health: 'Live System health from Brain 3D. Only page brain. No additional fields.',
+    } };
     try {
       const body = await readBody(request, 16384);
-      ({ role, prompt, filters, modules } = body);
+      ({ role, prompt, previousTask = '', filters, modules } = body);
       if (!roles.includes(role) || typeof prompt !== 'string' || !prompt.trim() || prompt.length > 1000) throw new TypeError();
-      if (role === 'systems' && (!filters || typeof filters !== 'object' || Array.isArray(filters))) throw new TypeError();
-      if (role === 'qc') {
+      if (typeof previousTask !== 'string' || previousTask.length > 1000) throw new TypeError();
+      intent = ['build', 'systems'].includes(role) ? brainHealthIntent(prompt, previousTask) : null;
+      if (intent === 'edit' || intent === 'read') return json({ answer: intent === 'edit' ? brainEditMessage : 'Open Brain 3D and select System health for the current integration checks.', trace: ['systems'] });
+      if (intent !== 'build' && role === 'systems' && (!filters || typeof filters !== 'object' || Array.isArray(filters))) throw new TypeError();
+      if (intent !== 'build' && role === 'qc') {
         validateConfig({ ...initialConfig(), modules });
         if (Buffer.byteLength(JSON.stringify(modules)) > 6000) return json({ error: 'Reduce the draft modules to 6 KB for one QC review.' }, 400);
         if (!modules.length) return json({ error: 'Add a draft module before running QC.' }, 400);
@@ -59,10 +64,13 @@ export function createJarvisHandler({ env = process.env, fetchImpl = fetch, read
       return json({ error: 'Invalid agent request or module configuration.' }, 400);
     }
 
+    if (intent === 'build') role = 'build';
+    const key = env.GROQ_API_KEY;
+    if (!key) return json({ error: 'Set GROQ_API_KEY from a Groq Free project.' }, 503);
     if (running) return json({ error: 'JARVIS is processing another task. Retry shortly.' }, 429);
     running = true;
     try {
-      let context = { catalog };
+      let context = { catalog, requiredModule: intent === 'build' ? 'health' : null };
       if (role === 'systems') {
         try {
           context = await readSystems(filters);
@@ -72,7 +80,7 @@ export function createJarvisHandler({ env = process.env, fetchImpl = fetch, read
       }
       if (role === 'qc') context.modules = modules;
       const graph = compileAgents(groqModel(key, fetchImpl), () => latestNews(fetchImpl));
-      const { result } = await graph.invoke({ role, prompt: prompt.trim(), context }, { recursionLimit: 8 });
+      const { result } = await graph.invoke({ role, prompt: prompt.trim(), previousTask, context }, { recursionLimit: 8 });
       return json(result);
     } catch (error) {
       return json({ error: error.agentStatus ? error.message : 'JARVIS could not complete the task. Check your provider settings and retry.' }, error.agentStatus || 502);

@@ -1,3 +1,5 @@
+import { brainEditMessage, brainHealthIntent, formatBrainHealth } from './jarvis-intent.mjs';
+
 const agents = {
   systems: 'Systems and KPIs',
   market: 'Market news and improvement',
@@ -18,10 +20,11 @@ function node(tag, properties, ...children) {
   return result;
 }
 
-export function createJarvisPanel({ key, filters, draftModules, importModules }) {
+export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftModules, importModules }) {
   const role = node('select', { className: 'ctl' });
   for (const [id, label] of Object.entries(agents)) role.add(new Option(label, id));
   const prompt = node('textarea', { className: 'ctl', required: true, maxLength: 1000, placeholder: examples.systems });
+  const previousTasks = new Map();
   role.onchange = () => { prompt.placeholder = examples[role.value]; };
   const run = node('button', { className: 'btn', type: 'submit' }, 'Run agent');
   const status = node('p', { className: 'studio-status' });
@@ -34,11 +37,23 @@ export function createJarvisPanel({ key, filters, draftModules, importModules })
   form.onsubmit = async event => {
     event.preventDefault();
     if (run.disabled) return;
-    role.disabled = prompt.disabled = run.disabled = true;
+    const task = prompt.value.trim();
+    if (!task) return;
+    const previousTask = previousTasks.get(role.value) || '';
+    const intent = ['build', 'systems'].includes(role.value) ? brainHealthIntent(task, previousTask) : null;
     output.replaceChildren();
+    if (intent === 'read' || intent === 'edit') {
+      previousTasks.set(role.value, task);
+      status.textContent = 'Brain 3D · System health';
+      const answer = intent === 'read' ? formatBrainHealth(brainHealth()) : brainEditMessage;
+      output.append(node('p', { className: 'studio-config-note' }, answer),
+        node('button', { className: 'btn', type: 'button', onclick: openBrain }, 'Open Brain 3D'));
+      return;
+    }
+    role.disabled = prompt.disabled = run.disabled = true;
     status.textContent = 'Running agent…';
     try {
-      const command = { role: role.value, prompt: prompt.value };
+      const command = { role: role.value, prompt: task, previousTask };
       if (command.role === 'systems') command.filters = filters();
       if (command.role === 'qc') command.modules = draftModules();
       const response = await fetch('/api/jarvis', {
@@ -48,6 +63,7 @@ export function createJarvisPanel({ key, filters, draftModules, importModules })
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'JARVIS request failed.');
+      previousTasks.set(role.value, task);
       status.textContent = [result.trace.map(id => id === 'build' ? 'Build developer' : agents[id] || id).join(' → '),
         typeof result.approved === 'boolean' ? (result.approved ? 'QC passed' : 'Changes needed') : 'Complete'].join(' · ');
       if (result.buildSummary) output.append(node('p', { className: 'studio-config-note' }, result.buildSummary));

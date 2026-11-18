@@ -1,7 +1,7 @@
 // Minimal Groq use: one chat completion over a compact JSON summary of the metrics.
 // The model only sees aggregates (no names, phones or message bodies).
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-export const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
+export const DEFAULT_MODEL = 'openai/gpt-oss-20b';
 
 // Compact, aggregate-only context (about 1.5k tokens). Arrays are [key, value] pairs to save tokens.
 export function compactForModel(r) {
@@ -46,11 +46,15 @@ export async function askGroq({ question, result, fetchImpl = fetch }) {
   const cacheKey = [q.toLowerCase(), result.range.from, result.range.to, result.range.rep || '', result.sources?.loadedAt || ''].join('|');
   const hit = answers.get(cacheKey);
   if (hit && Date.now() - hit.at < 600000) return { ...hit.value, cached: true };
+  const model = process.env.GROQ_MODEL || DEFAULT_MODEL;
+  const reasoning = model.startsWith('openai/gpt-oss-');
   const res = await fetchImpl(GROQ_URL, {
     method: 'POST', signal: AbortSignal.timeout(20000),
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: process.env.GROQ_MODEL || DEFAULT_MODEL, temperature: 0.2, max_tokens: Number(process.env.GROQ_MAX_TOKENS) || 350,
+      model, temperature: 0.2,
+      max_completion_tokens: Number(process.env.GROQ_MAX_TOKENS) || (reasoning ? 850 : 350),
+      ...(reasoning ? { reasoning_effort: 'low' } : {}),
       messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: `Metrics JSON:\n${JSON.stringify(compactForModel(result))}\n\nQuestion: ${q}` }],
     }),
   });

@@ -837,6 +837,7 @@ function brainModel(r){
   };
 }
 function showBrain(){
+  if (studio && state.view === 'brain') studio.refreshModules();
   if (state.view !== 'brain' || (brainReady && brainReport === last && renderedActivity === brainActivity && renderedStatus === brainStatus && renderedWorkflow === brainWorkflow)) return;
   $('brainMeta').textContent = '';
   if (window.LcpBrain) {
@@ -878,6 +879,11 @@ function loadStudio(){
         view: function(){ return state.view; },
         report: function(){ return last; },
         filters: params,
+        brainHealth: function(){ return {
+          sources: brainModel(last).health.sources,
+          sample: last?.sources?.mode === 'sample',
+        }; },
+        openBrain: function(){ state.touched = true; setView('brain'); },
       });
       return studio;
     }).catch(function(error){ studioLoad = null; throw error; });

@@ -1,3 +1,4 @@
+import { formatBrainHealth } from './jarvis-intent.mjs';
 import { createJarvisPanel } from './jarvis.mjs';
 import { initialConfig, metrics, pages, salesWidgets, validateConfig } from './studio-schema.mjs';
 
@@ -30,10 +31,12 @@ function card(title, ...nodes) {
   return element('section', { className: 'card studio-card' }, element('h2', {}, title), ...nodes);
 }
 
-function moduleCard(module, report) {
+function moduleCard(module, report, health) {
   let value;
   if (module.type === 'note') {
     value = element('p', { className: 'studio-config-note' }, module.text);
+  } else if (module.type === 'health') {
+    value = element('p', { className: 'studio-config-note' }, formatBrainHealth(health));
   } else {
     const metric = report?.kpis?.[module.metric];
     const format = module.metric === 'connectRate' ? { style: 'percent', maximumFractionDigits: 1 } : { maximumFractionDigits: 1 };
@@ -42,7 +45,7 @@ function moduleCard(module, report) {
   return card(module.title, value);
 }
 
-export function mountStudio({ root, dashboardKey, view, report, filters }) {
+export function mountStudio({ root, dashboardKey, view, report, filters, brainHealth, openBrain }) {
   const studioTab = document.querySelector('[data-v="studio"]');
   const tabs = new Map(Object.keys(pages).map(id => [id, document.querySelector('[data-v="' + id + '"]')]));
   const sales = document.getElementById('v-sales');
@@ -66,9 +69,12 @@ export function mountStudio({ root, dashboardKey, view, report, filters }) {
   let moduleView = '';
   let moduleReport = null;
   let moduleConfig = null;
+  let moduleHealth = '';
   const jarvis = createJarvisPanel({
     key: () => adminKey,
     filters,
+    brainHealth,
+    openBrain,
     draftModules: () => working.modules,
     importModules(modules) {
       if (busy) throw new Error('Wait for the Studio action to finish.');
@@ -98,11 +104,16 @@ export function mountStudio({ root, dashboardKey, view, report, filters }) {
     const current = view();
     const currentReport = report();
     moduleHost.hidden = current === 'studio';
-    if (moduleHost.hidden || (moduleView === current && moduleReport === currentReport && moduleConfig === published)) return;
+    if (moduleHost.hidden) return;
+    const visible = published.modules.filter(module => module.page === current);
+    const health = visible.some(module => module.type === 'health') ? brainHealth() : undefined;
+    const healthKey = health ? formatBrainHealth(health) : '';
+    if (moduleView === current && moduleReport === currentReport && moduleConfig === published && moduleHealth === healthKey) return;
     moduleView = current;
     moduleReport = currentReport;
     moduleConfig = published;
-    moduleHost.replaceChildren(...published.modules.filter(module => module.page === current).map(module => moduleCard(module, currentReport)));
+    moduleHealth = healthKey;
+    moduleHost.replaceChildren(...visible.map(module => moduleCard(module, currentReport, health)));
   }
 
   function apply(config) {
@@ -243,7 +254,7 @@ export function mountStudio({ root, dashboardKey, view, report, filters }) {
         return element('div', { className: 'studio-preview' },
           element('h3', {}, title),
           ...(id === 'sales' ? [element('p', {}, visibleSales.join(' · ') || 'All built-in Sales groups hidden')] : []),
-          ...working.modules.filter(module => module.page === id).map(module => moduleCard(module, report())));
+          ...working.modules.filter(module => module.page === id).map(module => moduleCard(module, report(), module.type === 'health' ? brainHealth() : undefined)));
       });
       previewHost.replaceChildren(...layout);
     }
@@ -294,8 +305,10 @@ export function mountStudio({ root, dashboardKey, view, report, filters }) {
       }) : select(metrics, module.metric, event => { module.metric = event.target.value; edited(); });
       return sortableRow(working.modules, index,
         field('Title', input(module.title, 80, event => { module.title = event.target.value; edited(); })),
-        field('Page', select(pages, module.page, event => { module.page = event.target.value; edited(); })),
-        field(module.type === 'note' ? 'Note' : 'Report KPI', text),
+        ...(module.type === 'health' ? [element('span', {}, 'Brain 3D · Live system health')] : [
+          field('Page', select(pages, module.page, event => { module.page = event.target.value; edited(); })),
+          field(module.type === 'note' ? 'Note' : 'Report KPI', text),
+        ]),
         ...orderControls(working.modules, index, module.title),
         button('Remove', () => { working.modules.splice(index, 1); preview = false; render(); }),
       );
@@ -303,12 +316,14 @@ export function mountStudio({ root, dashboardKey, view, report, filters }) {
     function addModule(type) {
       const id = crypto.randomUUID();
       const data = type === 'note' ? { title: 'New note', text: 'Add your note here.' } : { title: 'New KPI', metric: 'dials' };
-      working.modules.push({ id, type, page: 'sales', ...data });
+      if (type === 'health') working.modules.push({ id, type, page: 'brain', title: 'System health' });
+      else working.modules.push({ id, type, page: 'sales', ...data });
       preview = false;
       render();
     }
     modules.append(element('div', { className: 'studio-actions' },
       button('Add note', () => addModule('note'), working.modules.length >= 20),
+      button('Add system health', () => addModule('health'), working.modules.length >= 20),
       button('Add KPI', () => addModule('metric'), working.modules.length >= 20),
     ));
 

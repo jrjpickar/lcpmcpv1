@@ -50,15 +50,16 @@ export function validateConfig(config) {
   check(Array.isArray(config.modules) && config.modules.length <= 20, 'A layout supports up to 20 modules.');
   const ids = new Set();
   for (const module of config.modules) {
-    check(module?.type === 'note' || module?.type === 'metric', 'Unsupported module type.');
-    const value = module.type === 'note' ? 'text' : 'metric';
-    fields(module, ['id', 'page', 'title', 'type', value]);
+    check(['note', 'metric', 'health'].includes(module?.type), 'Unsupported module type.');
+    const valueFields = module.type === 'note' ? ['text'] : module.type === 'metric' ? ['metric'] : [];
+    fields(module, ['id', 'page', 'title', 'type', ...valueFields]);
     check(typeof module.id === 'string' && /^[a-z0-9-]{1,48}$/.test(module.id) && !ids.has(module.id), 'Invalid or duplicate module ID.');
     ids.add(module.id);
     check(Object.hasOwn(pages, module.page), 'Unknown module destination.');
     label(module.title, 80);
-    if (value === 'text') label(module.text, 1200);
-    else check(Object.hasOwn(metrics, module.metric), 'Unknown report metric.');
+    if (module.type === 'note') label(module.text, 1200);
+    if (module.type === 'metric') check(Object.hasOwn(metrics, module.metric), 'Unknown report metric.');
+    if (module.type === 'health') check(module.page === 'brain', 'System health cards belong on Brain 3D.');
   }
   return config;
 }

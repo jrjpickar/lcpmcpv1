@@ -5,7 +5,7 @@ import handler from '../netlify/functions/brain-status.mjs';
 
 const main = 'AC' + '1'.repeat(32);
 const sub = 'AC' + '2'.repeat(32);
-const model = 'llama-3.3-70b-versatile';
+const model = 'openai/gpt-oss-20b';
 
 test('billing uses the parent account while Groq verifies the configured model with a read', async () => {
   const calls = [];

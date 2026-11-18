@@ -20,7 +20,7 @@ const routes = {
   '/api/alerts': (await import('../netlify/functions/alerts.mjs')).default,
 };
 const files = { '/': ['index.html', 'text/html; charset=utf-8'], '/lcp-metrics.js': ['lcp-metrics.js', 'application/javascript'], '/sample-data.js': ['sample-data.js', 'application/javascript'], '/brain3d.js': ['brain3d.js', 'application/javascript'] };
-for (const name of ['studio.mjs', 'jarvis.mjs', 'studio-schema.mjs', 'studio.css']) {
+for (const name of ['studio.mjs', 'jarvis.mjs', 'jarvis-intent.mjs', 'studio-schema.mjs', 'studio.css']) {
   files['/' + name] = [name, name.endsWith('.css') ? 'text/css' : 'application/javascript'];
 }
 const port = Number(process.env.PORT || 4173);

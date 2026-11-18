@@ -44,7 +44,7 @@ async function groqStatus(env, fetchImpl) {
     const { data } = await res.json();
     if (!Array.isArray(data)) return check('down', 'Groq returned an invalid model list');
     const model = env.GROQ_MODEL || DEFAULT_MODEL;
-    return data.some(item => item?.id === model) ? check('ok', 'Configured model listed') : check('warn', 'Configured model unavailable');
+    return data.some(item => item?.id === model) ? check('ok', 'Configured model listed', { model }) : check('warn', 'Configured model unavailable: ' + model, { model });
   } catch {
     return check('down', 'Groq model request failed');
   }
