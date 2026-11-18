@@ -16,6 +16,9 @@
     "three": "^0.187.0"
   },
   "dependencies": {
-    "@netlify/blobs": "^10.7.13"
+    "@langchain/core": "1.4.1",
+    "@langchain/langgraph": "1.7.5",
+    "@netlify/blobs": "^10.7.13",
+    "fast-xml-parser": "5.12.1"
   }
 }

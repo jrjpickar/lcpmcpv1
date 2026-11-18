@@ -9,7 +9,7 @@ import { localStudioStore } from './studio-store.mjs';
 process.env.DATA_MODE = 'sample';
 const studioFile = resolve(process.env.LCP_STUDIO_LOCAL_FILE || '.lcp-studio-local.json');
 const routes = {
-  '/api/jarvis': createJarvisHandler({ local: true }),
+  '/api/jarvis': createJarvisHandler(),
   '/api/studio': createStudioHandler(() => localStudioStore(studioFile)),
   '/api/brain-status': (await import('../netlify/functions/brain-status.mjs')).default,
   '/api/activity': (await import('../netlify/functions/activity.mjs')).default,

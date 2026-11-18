@@ -1,0 +1,18 @@
+#v-studio .studio-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start }
+.studio-actions,.studio-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center }
+.studio-row { padding:9px 0; border-bottom:1px solid var(--line) }
+.studio-row > label { flex:1 1 160px }
+.studio-row input:not([type=checkbox]),.studio-row select,.studio-row textarea { width:100% }
+.studio-row textarea { min-height:88px; resize:vertical; font:inherit; color:inherit }
+.studio-actions { margin-block:12px }
+.studio-status { min-height:1.5em; color:var(--text-2) }
+.studio-config-note { white-space:pre-wrap; overflow-wrap:anywhere }
+.studio-config-metric { display:block; font-size:26px; font-weight:700 }
+.studio-card h2,.studio-card h3 { overflow-wrap:anywhere }
+.studio-card button:disabled { opacity:.48; cursor:default }
+.studio-preview { padding:16px; border:1px dashed var(--muted); border-radius:var(--r); margin-block:12px }
+.studio-preview .card { margin:12px 0 0 }
+nav.tabs { flex-wrap:wrap }
+[data-studio-widget][hidden],nav.tabs button[hidden] { display:none }
+@media(max-width:760px) { #v-studio .studio-grid { grid-template-columns:1fr } }
+.studio-grip { color:var(--text-2); cursor:grab; padding-inline:4px; user-select:none }
