@@ -197,6 +197,7 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
     <button role="tab" data-v="sales" aria-selected="true">Sales</button>
     <button role="tab" data-v="workflows" aria-selected="false">Workflows</button>
     <button role="tab" data-v="accounting" aria-selected="false">Accounting</button>
+    <button role="tab" data-v="studio" aria-selected="false" hidden>Studio</button>
   </nav>
   <div id="err"></div>
 
@@ -209,18 +210,18 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
 
   <!-- SALES -->
   <div class="view on" id="v-sales">
-    <section class="kpis" id="kpis"></section>
-    <section class="card ai">
+    <section class="kpis" id="kpis" data-studio-widget="kpis"></section>
+    <section class="card ai" data-studio-widget="insights">
       <div><h2 style="margin:0 0 2px">Insights</h2><div class="meta" id="aiMeta"></div><ol id="insights"></ol></div>
       <div><div class="ask"><input id="q" placeholder="Ask, e.g. who should get more dials?" maxlength="600"><button class="btn" id="askBtn">Ask</button></div><div class="answer" id="answer"></div></div>
     </section>
-    <section class="card" id="sigCard">
+    <section class="card" id="sigCard" data-studio-widget="signals">
       <div class="card-h"><div><h2>Signals</h2><div class="meta">Early warnings and leaks. Click one for detail.</div></div><span class="meta" id="sigAlertMeta"></span></div>
       <div class="alerts" id="alertBar"></div>
       <div class="sigs" id="sigs"></div>
       <div class="sigd" id="sigDetail"></div>
     </section>
-    <section class="card">
+    <section class="card" data-studio-widget="calls">
       <div class="card-h"><div><h2>Calls by rep <span class="info" data-def="dial">i</span></h2><div class="meta" id="callsMeta"></div></div></div>
       <div class="strip" id="callStrip"></div>
       <div class="callgrid">
@@ -230,7 +231,7 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
       <div class="sub-h"><h3>Rep scorecard</h3><span class="meta">Click a rep to filter the page</span></div>
       <div class="tw"><table class="score" id="score"></table></div>
     </section>
-    <section class="card">
+    <section class="card" data-studio-widget="opportunities">
       <div class="card-h"><div><h2>Opportunities generated <span class="info" data-def="qualified">i</span></h2><div class="meta" id="oppMeta"></div></div></div>
       <div class="opps">
         <div><div class="sub-h"><h3>Where</h3><div class="mini" id="locBy"><button data-l="city" aria-pressed="true">City</button><button data-l="zip">ZIP</button></div></div><div id="where"></div></div>
@@ -239,7 +240,7 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
       </div>
       <div class="heat"><div class="sub-h"><h3>Day and hour created (Pacific)</h3></div><div id="heat"></div></div>
     </section>
-    <div class="paths"><section class="card" id="smsCard"></section><section class="card" id="dialCard"></section></div>
+    <div class="paths" data-studio-widget="paths"><section class="card" id="smsCard"></section><section class="card" id="dialCard"></section></div>
   </div>
 
   <!-- WORKFLOWS -->
@@ -247,6 +248,8 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
 
   <!-- ACCOUNTING -->
   <div class="view" id="v-accounting"></div>
+
+  <div class="view" id="v-studio"></div>
 
   <div class="foot"><span id="footMeta"></span></div>
 </div>
@@ -261,6 +264,7 @@ var STATIC = !!window.LCP_STATIC;
 var key = (location.hash.match(/key=([^&]+)/) || [])[1] || ssGet('lcpKey') || '';
 if (key) ssSet('lcpKey', key);
 var state = { sig: '', view: 'sales', preset: '30d', from: '', to: '', rep: '', locBy: 'city', sort: { k: 'dials', dir: -1 } };
+var studio = null, studioLoad = null;
 var sampleData = null, last = null, wf = null, brainReady = false, brainLoading = false, brainReport = null, brainActivity = null, renderedActivity = null;
 var brainStatus = null, renderedStatus = null, renderedWorkflow = null, brainWorkflow = null, twilioReps = null;
 var reads = new Map(), reportGeneration = 0, workflowGeneration = 0, activityGeneration = 0, filterTimer;
@@ -351,6 +355,7 @@ function render(r){
   if (state.view === 'accounting') renderAccounting(r);
   if (state.view === 'workflows') loadWorkflows();
   if (state.view === 'brain') { showBrain(); refreshBrainWorkflowStatus(); if (STATIC) showSampleActivity(r); }
+  if (studio) studio.refreshModules();
   $('footMeta').textContent = r.range.from + ' to ' + r.range.to + ' · ' + r.range.timezone + (r.previous ? ' · changes vs ' + r.previous.range.from + ' to ' + r.previous.range.to : '');
 }
 
@@ -857,11 +862,34 @@ function showBrain(){
 function setView(v){
   state.view = v;
   document.querySelectorAll('nav.tabs button').forEach(function(b){ b.setAttribute('aria-selected', b.dataset.v === v); });
-  ['brain', 'sales', 'workflows', 'accounting'].forEach(function(x){ $('v-' + x).className = 'view' + (x === v ? ' on' : ''); });
+  ['brain', 'sales', 'workflows', 'accounting', 'studio'].forEach(function(x){ $('v-' + x).className = 'view' + (x === v ? ' on' : ''); });
   $('rep').disabled = v !== 'sales' && v !== 'brain';
   if (v === 'workflows') loadWorkflows();
   if (v === 'brain') { refreshBrainStatus(); refreshBrainWorkflowStatus(); loadBrainActivity(); showBrain(); }
+  if (v === 'studio') openStudio();
+  if (studio) studio.refreshModules();
   if (last) { if (v === 'accounting') renderAccounting(last); if (v === 'sales') render(last); }
+}
+function loadStudio(){
+  if (!studioLoad) {
+    studioLoad = import('./studio.mjs').then(function(mod){
+      studio = mod.mountStudio({
+        root: $('v-studio'), dashboardKey: key,
+        view: function(){ return state.view; },
+        report: function(){ return last; },
+        filters: params,
+      });
+      return studio;
+    }).catch(function(error){ studioLoad = null; throw error; });
+  }
+  return studioLoad;
+}
+function openStudio(){
+  loadStudio().catch(function(){ $('v-studio').textContent = 'Could not load the Studio. Select Studio to retry.'; });
+}
+if (!STATIC) {
+  document.querySelector('[data-v="studio"]').hidden = false;
+  loadStudio().catch(function(){});
 }
 document.querySelectorAll('nav.tabs button').forEach(function(b){ b.onclick = function(){ state.touched = true; setView(b.dataset.v); }; });
 $('presets').querySelectorAll('button').forEach(function(b){ b.onclick = function(){ state.preset = b.dataset.p; state.from = state.to = ''; $('presets').querySelectorAll('button').forEach(function(x){ x.setAttribute('aria-pressed', x === b); }); load(); }; });

@@ -2,8 +2,15 @@
 // npm run sandbox  ->  http://127.0.0.1:4173   MCP: POST http://127.0.0.1:4173/mcp
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { createJarvisHandler } from '../netlify/functions/jarvis.mjs';
+import { createStudioHandler } from '../netlify/functions/lib/studio.mjs';
+import { localStudioStore } from './studio-store.mjs';
 process.env.DATA_MODE = 'sample';
+const studioFile = resolve(process.env.LCP_STUDIO_LOCAL_FILE || '.lcp-studio-local.json');
 const routes = {
+  '/api/jarvis': createJarvisHandler({ local: true }),
+  '/api/studio': createStudioHandler(() => localStudioStore(studioFile)),
   '/api/brain-status': (await import('../netlify/functions/brain-status.mjs')).default,
   '/api/activity': (await import('../netlify/functions/activity.mjs')).default,
   '/api/metrics': (await import('../netlify/functions/metrics.mjs')).default,
@@ -13,12 +20,24 @@ const routes = {
   '/api/alerts': (await import('../netlify/functions/alerts.mjs')).default,
 };
 const files = { '/': ['index.html', 'text/html; charset=utf-8'], '/lcp-metrics.js': ['lcp-metrics.js', 'application/javascript'], '/sample-data.js': ['sample-data.js', 'application/javascript'], '/brain3d.js': ['brain3d.js', 'application/javascript'] };
+for (const name of ['studio.mjs', 'jarvis.mjs', 'studio-schema.mjs', 'studio.css']) {
+  files['/' + name] = [name, name.endsWith('.css') ? 'text/css' : 'application/javascript'];
+}
 const port = Number(process.env.PORT || 4173);
 http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${port}`);
   const fn = routes[url.pathname];
   if (fn) {
-    let body = ''; for await (const chunk of req) body += chunk;
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if ((url.pathname === '/api/studio' && size > 131072) || (url.pathname === '/api/jarvis' && size > 16384)) {
+        res.writeHead(413); res.end('Request body exceeds the size limit.'); return;
+      }
+      chunks.push(chunk);
+    }
+    const body = Buffer.concat(chunks);
     const response = await fn(new Request(url, { method: req.method, headers: req.headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : body }));
     res.writeHead(response.status, Object.fromEntries(response.headers)); res.end(Buffer.from(await response.arrayBuffer())); return;
   }

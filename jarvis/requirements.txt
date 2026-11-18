@@ -1,0 +1,2 @@
+certifi
+langgraph==1.2.22
