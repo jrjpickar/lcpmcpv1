@@ -5,6 +5,8 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createJarvisHandler } from '../netlify/functions/jarvis.mjs';
 import { createJarvisMemoryHandler } from '../netlify/functions/jarvis-memory.mjs';
+import { createInstructionsHandler } from '../netlify/functions/jarvis-instructions.mjs';
+import { createExecuteHandler } from '../netlify/functions/jarvis-execute.mjs';
 import { createStudioHandler } from '../netlify/functions/lib/studio.mjs';
 import { localKeyedStore, localStudioStore } from './studio-store.mjs';
 process.env.DATA_MODE = 'sample';
@@ -13,6 +15,11 @@ const jarvisStore = localKeyedStore(resolve(process.env.LCP_JARVIS_LOCAL_DIR || 
 const routes = {
   '/api/jarvis': createJarvisHandler({ openStore: async () => jarvisStore }),
   '/api/jarvis-memory': createJarvisMemoryHandler({ openStore: async () => jarvisStore }),
+  '/api/jarvis-instructions': createInstructionsHandler({ openStore: async () => jarvisStore }),
+  '/api/jarvis-execute': createExecuteHandler({ openStore: async () => jarvisStore }),
+  '/api/jarvis-email-draft': (await import('../netlify/functions/jarvis-email-draft.mjs')).default,
+  '/api/voice': (await import('../netlify/functions/voice.mjs')).default,
+  '/api/voice-turn': (await import('../netlify/functions/voice-turn.mjs')).default,
   '/api/studio': createStudioHandler(() => localStudioStore(studioFile)),
   '/api/brain-status': (await import('../netlify/functions/brain-status.mjs')).default,
   '/api/activity': (await import('../netlify/functions/activity.mjs')).default,
@@ -23,8 +30,8 @@ const routes = {
   '/api/alerts': (await import('../netlify/functions/alerts.mjs')).default,
 };
 const files = { '/': ['index.html', 'text/html; charset=utf-8'], '/lcp-metrics.js': ['lcp-metrics.js', 'application/javascript'], '/sample-data.js': ['sample-data.js', 'application/javascript'], '/brain3d.js': ['brain3d.js', 'application/javascript'] };
-for (const name of ['studio.mjs', 'jarvis.mjs', 'jarvis-intent.mjs', 'studio-schema.mjs', 'studio.css']) {
-  files['/' + name] = [name, name.endsWith('.css') ? 'text/css' : 'application/javascript'];
+for (const name of ['studio.mjs', 'jarvis.mjs', 'jarvis-intent.mjs', 'jarvis-instructions.mjs', 'studio-schema.mjs', 'studio.css', 'voice.js', 'voice-vad.js', 'voice-launch.js', 'voice.css', 'voice.html']) {
+  files['/' + name] = [name, name.endsWith('.css') ? 'text/css' : name.endsWith('.html') ? 'text/html; charset=utf-8' : 'application/javascript'];
 }
 const port = Number(process.env.PORT || 4173);
 http.createServer(async (req, res) => {
@@ -35,7 +42,7 @@ http.createServer(async (req, res) => {
     let size = 0;
     for await (const chunk of req) {
       size += chunk.length;
-      if ((url.pathname === '/api/studio' && size > 131072) || (url.pathname === '/api/jarvis' && size > 16384) || (url.pathname === '/api/jarvis-memory' && size > 8192)) {
+      if ((url.pathname === '/api/studio' && size > 131072) || (['/api/jarvis', '/api/jarvis-execute'].includes(url.pathname) && size > 16384) || (['/api/jarvis-memory', '/api/jarvis-instructions'].includes(url.pathname) && size > 8192)) {
         res.writeHead(413); res.end('Request body exceeds the size limit.'); return;
       }
       chunks.push(chunk);

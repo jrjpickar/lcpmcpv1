@@ -76,3 +76,15 @@ nav.tabs { flex-wrap:wrap }
 @media (prefers-reduced-motion:reduce) { .jarvis-msg.thinking span { animation:none } }
 @media(max-width:760px) { .jarvis-layout { grid-template-columns:1fr } .jarvis-threads { border-right:0; border-bottom:1px solid var(--line); padding:0 0 10px } .jarvis-threads-list { max-height:150px } .jarvis-msg { max-width:100% } }
 .jarvis-inline[hidden] { display:none }
+.jarvis-threads input[type=search] { width:100%; font:inherit; font-size:12px }
+.jarvis-bot-form,.jarvis-instructions { display:grid; gap:8px; margin-top:6px }
+.jarvis-bot-form textarea,.jarvis-instructions textarea { font:inherit; color:inherit; resize:vertical }
+.jarvis-field { display:grid; gap:4px; font-size:13px; color:var(--text-2) }
+.jarvis-export { color:var(--text-2) }
+.jarvis-plan { margin-top:8px; border-top:1px solid var(--line); padding-top:8px }
+.jarvis-plan ol { padding-left:20px; margin:4px 0; font-size:12.5px }
+.jarvis-run { margin-top:6px; font-size:12.5px }
+.jarvis-table { overflow:auto; max-width:100%; margin:4px 0 8px }
+.jarvis-table table { border-collapse:collapse; font-size:12px }
+.jarvis-table th,.jarvis-table td { border:1px solid var(--line); padding:3px 7px; text-align:left; white-space:nowrap }
+.jarvis-draft-body { white-space:pre-wrap; font:inherit; font-size:13px; background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin:6px 0 }
