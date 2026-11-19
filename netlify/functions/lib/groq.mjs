@@ -49,7 +49,7 @@ export async function askGroq({ question, result, fetchImpl = fetch }) {
   const model = process.env.GROQ_MODEL || DEFAULT_MODEL;
   const reasoning = model.startsWith('openai/gpt-oss-');
   const res = await fetchImpl(GROQ_URL, {
-    method: 'POST', signal: AbortSignal.timeout(20000),
+    method: 'POST', signal: AbortSignal.timeout(Math.min(60000, Math.max(1000, Number(process.env.MODEL_TIMEOUT_MS) || 7000))), // under Netlify's 10 s limit
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model, temperature: 0.2,

@@ -41,6 +41,11 @@ export function studioAuthorized(request, expected = process.env.LCP_STUDIO_KEY)
   return Boolean(expected && expected.length >= 24 && safeEqual(request.headers.get('x-lcp-studio-key'), expected));
 }
 
+// JARVIS access with flags: { admin, mailbox } or null. Studio key holders get the mailbox too.
+export function jarvisAccess(request, env = process.env) {
+  return studioAuthorized(request, env.LCP_STUDIO_KEY || '') ? { admin: true, mailbox: true } : null;
+}
+
 export function createStudioHandler(openStore, adminKey = () => process.env.LCP_STUDIO_KEY) {
   return async function studio(request) {
     const url = new URL(request.url);

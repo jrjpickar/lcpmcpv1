@@ -1,0 +1,24 @@
+#call-brain { border-color: var(--s1); color: var(--s1); }
+:root { --accent: var(--s1, #3987e5); --line: #222e45; }
+#voice-dialog, .voice-page {
+  width: min(40rem, calc(100% - 2rem)); padding: clamp(1rem, 4vw, 2rem);
+  border: 1px solid var(--line); border-radius: 14px; background: #131b2c; color: #e6ebf5;
+}
+#voice-dialog { max-height: calc(100% - 2rem); }
+#voice-dialog::backdrop { background: #05080fb8; }
+#voice-close { float: right; min-width: 44px; }
+.voice-page { margin: 2rem auto; }
+#voice-panel h1 { margin: 0 0 .65rem; font-size: 1.65rem; }
+#voice-panel button { min-height: 44px; }
+.voice-controls { display: flex; gap: .45rem; flex-wrap: wrap; }
+.voice-meta { display: flex; gap: .65rem; flex-wrap: wrap; color: #9aa6bd; font-size: .875rem; }
+.voice-option { display: inline-flex; align-items: center; gap: .4rem; min-height: 44px; }
+.voice-log { min-height: 6rem; max-height: min(28dvh, 15rem); overflow: auto; overflow-wrap: anywhere; }
+.voice-log p { margin: 0 0 .75rem; }
+.voice-log strong { color: var(--accent); }
+.voice-text > div { display: flex; gap: .5rem; margin-top: .4rem; }
+.voice-text input { flex: 1; min-width: 0; font-size: max(1rem, 16px); }
+.voice-page { font: 15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; }
+body.voice-body { background: #0b1120; margin: 0; }
+#voice-panel button, #voice-panel input { font: inherit; color: inherit; background: #1a2438; border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; }
+#voice-panel button:disabled { opacity: .5; }

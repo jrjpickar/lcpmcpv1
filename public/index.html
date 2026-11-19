@@ -184,6 +184,7 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
   <header>
     <div class="brand"><div class="logo">LCP</div><div><h1>Sales Pulse</h1><small>Dialer · GHL · Ledger</small></div></div>
     <span class="pill" id="pill"></span>
+    <button type="button" class="ctl" id="call-brain" hidden>Call Brain</button>
     <div class="filters">
       <div class="seg" id="presets" role="group" aria-label="Date range">
         <button data-p="today">Today</button><button data-p="7d">7D</button><button data-p="wtd">WTD</button><button data-p="mtd">MTD</button><button data-p="30d" aria-pressed="true">30D</button><button data-p="90d">90D</button><button data-p="ytd">YTD</button>
@@ -920,6 +921,29 @@ document.addEventListener('mousemove', function(e){
 var rt, lastW = innerWidth; addEventListener('resize', function(){ if (innerWidth === lastW) return; lastW = innerWidth; clearTimeout(rt); rt = setTimeout(function(){ if (last && state.view !== 'brain' && state.view !== 'workflows') render(last); }, 150); });
 load();
 })();
+</script>
+<dialog id="voice-dialog" aria-labelledby="voice-title">
+  <button type="button" id="voice-close" aria-label="Close call">×</button>
+  <div id="voice-panel"></div>
+</dialog>
+<script type="module">
+// Call Brain (voice). Hidden in the static preview. The server answers 503 until VOICE_ENABLED=1.
+if (!window.LCP_STATIC) {
+  const css = Object.assign(document.createElement('link'), { rel: 'stylesheet', href: '/voice.css' });
+  document.head.append(css);
+  const { mountVoice } = await import('/voice.js');
+  const dialog = document.getElementById('voice-dialog');
+  const presetOf = () => document.querySelector('#presets [aria-pressed=true]')?.dataset.p || 'mtd';
+  mountVoice(document.getElementById('voice-panel'), {
+    getHeaders: () => ({ 'x-lcp-key': (location.hash.match(/key=([^&]+)/) || [])[1] || (() => { try { return sessionStorage.getItem('lcpKey'); } catch { return null; } })() || '' }),
+    getPreset: () => (['today', 'yesterday', '7d', 'wtd', 'mtd', '30d', '90d', 'ytd'].includes(presetOf()) ? presetOf() : 'mtd'),
+  });
+  const button = document.getElementById('call-brain');
+  button.hidden = false;
+  button.onclick = () => dialog.showModal();
+  document.getElementById('voice-close').onclick = () => dialog.close();
+  dialog.addEventListener('close', () => document.getElementById('voice-panel').dispatchEvent(new Event('close')));
+}
 </script>
 </body>
 </html>

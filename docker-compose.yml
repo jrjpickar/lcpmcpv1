@@ -1,0 +1,44 @@
+# LCP MCP on a 1 GB VM. Ported from the A2Z compose file. The port binds to 127.0.0.1 only. Nothing is published to the internet.
+# The image is built on your computer (deploy/build-image.sh) and loaded on the VM, so compose never builds or pulls here.
+# Port 8081 so it can sit next to A2Z (8080) on the same e2-micro.
+services:
+  lcp-mcp:
+    image: lcp-mcp:latest
+    pull_policy: never
+    platform: linux/amd64
+    container_name: lcp-mcp
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # The A2Z VM has IPv6 egress only. Try IPv6 first so Node does not wait on unreachable IPv4 addresses.
+      NODE_OPTIONS: --max-old-space-size=288 --dns-result-order=ipv6first
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - lcp-data:/data
+    # 384 MB fits next to A2Z (512 MB) on 1 GB with the 2 GB swap the A2Z bootstrap adds.
+    mem_limit: 384m
+    memswap_limit: 768m
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  default:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.30.31.0/24
+        - subnet: fd00:1c9:0:2::/64
+
+volumes:
+  lcp-data:

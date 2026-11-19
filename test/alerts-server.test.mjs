@@ -26,7 +26,8 @@ test('posts new alerts to Slack once, never calls Groq', async () => {
   process.env.ALERT_WEBHOOK_URL = 'https://hooks.slack.test/x'; process.env.ALERT_ALLOW_SAMPLE = '1'; process.env.GROQ_API_KEY = 'gsk_should_not_be_used';
   const store = memory(), posts = [];
   const fetchImpl = async (url, init) => { assert.ok(!String(url).includes('groq'), 'alerts must not call Groq'); posts.push(JSON.parse(init.body)); return new Response('ok'); };
-  const now = Date.now();
+  // Injected clock (noon Pacific). Sample data is generated at this time too, so the result does not depend on when the test runs.
+  const now = Date.parse('2026-11-18T20:00:00Z');
   const first = await runAlertCheck({ now, store, fetchImpl, force: true });
   assert.ok(first.sent > 0, JSON.stringify(first));
   assert.match(posts[0].text, /LCP alerts/);

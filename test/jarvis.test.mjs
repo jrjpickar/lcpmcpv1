@@ -39,7 +39,7 @@ test('Jarvis protects the agent endpoint and sends only aggregate report context
   assert.equal((await run(request(payload, { 'x-lcp-studio-key': '' }))).status, 401);
   assert.equal((await run(request(payload, { origin: 'https://other.example' }))).status, 403);
   assert.equal((await run(request({ ...payload, role: 'shell' }))).status, 400);
-  assert.deepEqual(await (await run(request(payload))).json(), { answer: '18 dials', trace: ['systems'] });
+  assert.deepEqual(await (await run(request(payload))).json(), { answer: '18 dials', trace: ['systems'], agent: 'systems' });
   assert.equal(calls, 1);
 });
 
@@ -73,7 +73,7 @@ test('Build invokes independent QC and only returns valid approved modules', asy
 test('Standalone QC reviews current modules and returns quota errors', async () => {
   const payload = { role: 'qc', prompt: 'Check draft', modules: [{ id: 'dial-test', ...draft }] };
   const run = createJarvisHandler({ env, fetchImpl: async () => modelResponse({ approved: true, findings: 'Valid draft.' }) });
-  assert.deepEqual(await (await run(request(payload))).json(), { answer: 'Valid draft.', trace: ['qc'], approved: true });
+  assert.deepEqual(await (await run(request(payload))).json(), { answer: 'Valid draft.', trace: ['qc'], approved: true, agent: 'qc' });
   const quota = createJarvisHandler({ env, fetchImpl: async () => new Response('', { status: 429 }) });
   assert.equal((await quota(request(payload))).status, 429);
 });

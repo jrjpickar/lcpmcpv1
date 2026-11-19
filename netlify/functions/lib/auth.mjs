@@ -5,13 +5,17 @@ import { activityIsSample } from './activity.mjs';
 const digest = s => createHash('sha256').update(String(s)).digest();
 export const safeEqual = (a, b) => Boolean(a) && Boolean(b) && timingSafeEqual(digest(a), digest(b));
 
-// Dashboard + /api/ask: x-lcp-key header (the page reads it from #key= in the GHL Custom Page URL).
+// Dashboard + /api/ask: x-lcp-key header (the page reads it from #key= in the GHL Custom Page URL),
+// Returns { admin, mailbox } or null.
 // Sample mode needs no key. Live mode with no DASHBOARD_KEY set fails closed.
+export function dashboardAccess(request, sample = mode() === 'sample', env = process.env) {
+  if (sample) return { admin: true, mailbox: true };
+  const expected = env.DASHBOARD_KEY || '';
+  if (expected.length < 16) return null;
+  return safeEqual(request.headers.get('x-lcp-key') || '', expected) ? { admin: true, mailbox: true } : null;
+}
 export function dashboardAuthorized(request, sample = mode() === 'sample') {
-  if (sample) return true;
-  const expected = process.env.DASHBOARD_KEY || '';
-  if (expected.length < 16) return false;
-  return safeEqual(request.headers.get('x-lcp-key') || '', expected);
+  return Boolean(dashboardAccess(request, sample));
 }
 
 // /mcp: Authorization: Bearer MCP_KEY (falls back to DASHBOARD_KEY).

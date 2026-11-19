@@ -249,7 +249,7 @@ export async function ghlInboundCalls(start, to, fetchImpl = fetch, maxPages = e
 
 // Light load for the 5-minute alert check: today and yesterday only.
 export async function loadAlertData({ now = Date.now(), fetchImpl = fetch } = {}) {
-  if (mode() === 'sample') { sampleData ||= Sample.generate(); return sampleData; }
+  if (mode() === 'sample') { sampleData ||= Sample.generate({ now }); return sampleData; }
   const today = Metrics.dayKey(now), yesterday = Metrics.shiftDay(today, -1);
   const users = await ghlUsers(fetchImpl).catch(() => ({}));
   const [calls, sms, inboundCalls] = await Promise.all([
@@ -262,7 +262,7 @@ export async function loadAlertData({ now = Date.now(), fetchImpl = fetch } = {}
 
 // Once a day: 7-day caller ID baseline, 7-day opt-out rate and 8-week list decay.
 export async function loadBaselineData({ now = Date.now(), fetchImpl = fetch } = {}) {
-  if (mode() === 'sample') { sampleData ||= Sample.generate(); return sampleData; }
+  if (mode() === 'sample') { sampleData ||= Sample.generate({ now }); return sampleData; }
   const today = Metrics.dayKey(now);
   const users = await ghlUsers(fetchImpl).catch(() => ({}));
   const [calls, sms] = await Promise.all([dialerCalls(Metrics.shiftDay(today, -56), Metrics.shiftDay(today, -1), fetchImpl), ghlSms(Metrics.shiftDay(today, -7), Metrics.shiftDay(today, -1), users, fetchImpl)]);
