@@ -286,7 +286,21 @@ function hrs(min){ return min == null ? '-' : n(min / 60, 1) + 'h'; }
 function col(rep){ return repColor[rep] ? 'var(' + repColor[rep] + ')' : 'var(--muted)'; }
 function assignColors(reps){ reps.forEach(function(r){ var u = Object.keys(repColor).length; if (!repColor[r] && u < 8 && !/^(Unknown|Workflow|Automation|Unassigned)$/.test(r)) repColor[r] = SLOTS[u]; }); }
 function params(){ var p = state.from && state.to ? { from: state.from, to: state.to } : { preset: state.preset }; if (state.rep) p.rep = state.rep; return p; }
-function api(path){ return fetch(path, { headers: { 'x-lcp-key': key } }).then(function(res){ return res.json().then(function(j){ if (!res.ok) throw new Error(j.error || ('HTTP ' + res.status)); return j; }); }); }
+async function api(path){
+  var route = path.split('?')[0];
+  var res = await fetch(path, { headers: { 'x-lcp-key': key } });
+  var payload;
+  try {
+    payload = await res.json();
+  } catch {
+    var status = 'HTTP ' + res.status;
+    if (res.status === 401 || res.status === 403) throw new Error('Access denied for ' + route + ' (' + status + ').');
+    if (res.status === 404 || res.ok) throw new Error(route + ' returned a page or invalid data (' + status + '). Check that this host serves the LCP API.');
+    throw new Error(route + ' failed (' + status + '). Check the deployment logs.');
+  }
+  if (!res.ok) throw new Error(payload?.error || (route + ' failed (HTTP ' + res.status + ').'));
+  return payload;
+}
 function cachedApi(path){
   var hit = reads.get(path);
   if (hit && hit.until > Date.now()) return hit.result;
