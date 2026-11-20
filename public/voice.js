@@ -73,7 +73,7 @@ export function mountVoice(root, { launch, getHeaders = () => ({}), getPreset = 
   async function request(action, data = {}, { headers, signal, keepalive = false } = {}) {
     const response = await fetch(action === 'turn' ? '/api/voice-turn' : '/api/voice', {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { 'x-lcp-voice': token } : {}), ...headers },
-      body: JSON.stringify({ action, ...data }), signal, keepalive,
+      body: JSON.stringify({ action, ...data }), signal: AbortSignal.any([AbortSignal.timeout(action === 'turn' ? 30000 : 10000), ...(signal ? [signal] : [])]), keepalive,
     });
     const value = await response.json();
     if (!response.ok) throw Object.assign(new Error(value.error || 'Call Brain unavailable.'), { status: response.status });
@@ -153,6 +153,8 @@ export function mountVoice(root, { launch, getHeaders = () => ({}), getPreset = 
     } catch (error) {
       if (connection === controller) {
         if (error.status === 401 && token) disconnect('Session expired. Start a new call.', true);
+        else if (error.name === 'TimeoutError') status('Voice connection timed out. Try again.');
+        else if (error instanceof TypeError) status('Network error. Try connecting again.');
         else status(error.message || 'Connection failed.');
       }
     } finally {
@@ -240,18 +242,21 @@ export function mountVoice(root, { launch, getHeaders = () => ({}), getPreset = 
       if (pending !== current) return;
       pending = null;
       if (error.status === 401) return disconnect(error.message, true);
-      if (!error.status) return disconnect('Connection lost. Reconnect to continue.');
+      if (error.name === 'TimeoutError') return disconnect('Voice request timed out. Reconnect to continue.');
+      if (!error.status) return disconnect('Network error. Reconnect to continue.');
       status(error.message);
       controls();
     }
   }
   async function enableMic(forceBrowser = false) {
     if (!ready || openingMic) return;
+    if (!window.isSecureContext) return status('Microphone requires a secure HTTPS connection.');
     const server = modes.some(mode => mode !== 'browser');
     const browser = (forceBrowser || !server) && modes.includes('browser') && Recognition;
     if (!server && !browser) return status('Speech recognition is unavailable. You can type a message.');
     stopMic();
     const attempt = {};
+    let timer;
     openingMic = attempt;
     status('Opening microphone…');
     controls();
@@ -278,7 +283,12 @@ export function mountVoice(root, { launch, getHeaders = () => ({}), getPreset = 
         recognition.onerror = event => {
           if (mic !== current || event.error === 'no-speech') return;
           stopMic();
-          status('Browser recognition unavailable. You can type a message.');
+          const problems = {
+            'not-allowed': 'Microphone permission denied. Allow access or use text.',
+            'audio-capture': 'No microphone found. Connect a device or use text.',
+            network: 'Speech recognition network error. Try again or use text.',
+          };
+          status(problems[event.error] || 'Browser recognition unavailable. You can type a message.');
         };
         recognition.onend = () => {
           if (mic !== current) return;
@@ -301,11 +311,17 @@ export function mountVoice(root, { launch, getHeaders = () => ({}), getPreset = 
       try {
         const resume = context.resume();
         void resume.catch(() => {});
-        stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
-        if (openingMic !== attempt) return stop();
-        await resume;
-        if (!context.audioWorklet || context.sampleRate < 16000) throw new Error('This browser cannot process the microphone. Use text or browser recognition.');
-        await context.audioWorklet.addModule('/voice-vad.js');
+        const setup = async () => {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+          if (openingMic !== attempt) return stop();
+          await resume;
+          if (!context.audioWorklet || context.sampleRate < 16000) throw new Error('This browser cannot process the microphone. Use text or browser recognition.');
+          await context.audioWorklet.addModule('/voice-vad.js', { credentials: 'same-origin' });
+        };
+        const deadline = new Promise((resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('Microphone setup timed out. Try again or use text.')), 10000);
+        });
+        await Promise.race([setup(), deadline]);
         if (openingMic !== attempt) return stop();
         const processor = new AudioWorkletNode(context, 'lcp-voice-capture');
         const source = context.createMediaStreamSource(stream);
@@ -333,8 +349,16 @@ export function mountVoice(root, { launch, getHeaders = () => ({}), getPreset = 
         throw error;
       }
     } catch (error) {
-      if (openingMic === attempt) status(error.name === 'NotAllowedError' ? 'Microphone permission denied. Allow access or use text.' : error.message);
+      if (openingMic === attempt) {
+        const messages = {
+          NotAllowedError: 'Microphone permission denied. Allow access or use text.',
+          NotFoundError: 'No microphone found. Connect a device or use text.',
+          NotReadableError: 'Microphone is busy or unavailable. Check your device or use text.',
+        };
+        status(messages[error.name] || error.message);
+      }
     } finally {
+      clearTimeout(timer);
       if (openingMic === attempt) openingMic = null;
       controls();
     }
@@ -362,15 +386,24 @@ export function mountVoice(root, { launch, getHeaders = () => ({}), getPreset = 
     get('text').value = '';
     void send({ text });
   };
-  const clock = setInterval(() => {
-    if (!started) return;
+  function updateClock() {
+    if (!started || document.hidden) return;
     const seconds = Math.floor((Math.min(Date.now(), expires) - started) / 1000);
     get('duration').textContent = [Math.floor(seconds / 60), seconds % 60].map(value => String(value).padStart(2, '0')).join(':');
     if (token && Date.now() >= expires) disconnect(launch === '' ? 'Session expired. Run /call-lcp again.' : 'Session expired. Start a new call.', true);
-  }, 500);
+  }
+  let clock;
+  function scheduleClock() {
+    clearInterval(clock);
+    if (document.hidden) return;
+    updateClock();
+    clock = setInterval(updateClock, 500);
+  }
+  document.addEventListener('visibilitychange', scheduleClock);
+  scheduleClock();
   window.addEventListener('offline', () => { if (ready) disconnect('Offline. Reconnect when your connection returns.'); });
   window.addEventListener('pagehide', end);
   root.addEventListener('close', end);
   controls();
-  return { unavailable() { clearInterval(clock); status('Open a fresh link from /call-lcp.'); } };
+  return { unavailable() { clearInterval(clock); document.removeEventListener('visibilitychange', scheduleClock); status('Open a fresh link from /call-lcp.'); } };
 }

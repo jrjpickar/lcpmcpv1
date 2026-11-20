@@ -43,10 +43,11 @@ export async function askGroq({ question, result, fetchImpl = fetch }) {
   const key = process.env.GROQ_API_KEY;
   if (!key) return { configured: false, answer: null };
   const q = String(question || '').trim().slice(0, 600) || 'Give the 3 most important insights and 1 recommended action for this range.';
-  const cacheKey = [q.toLowerCase(), result.range.from, result.range.to, result.range.rep || '', result.sources?.loadedAt || ''].join('|');
+  const model = process.env.GROQ_MODEL || DEFAULT_MODEL;
+  const context = JSON.stringify(compactForModel(result));
+  const cacheKey = JSON.stringify([model, q.toLowerCase(), context]);
   const hit = answers.get(cacheKey);
   if (hit && Date.now() - hit.at < 600000) return { ...hit.value, cached: true };
-  const model = process.env.GROQ_MODEL || DEFAULT_MODEL;
   const reasoning = model.startsWith('openai/gpt-oss-');
   const res = await fetchImpl(GROQ_URL, {
     method: 'POST', signal: AbortSignal.timeout(Math.min(60000, Math.max(1000, Number(process.env.MODEL_TIMEOUT_MS) || 7000))), // under Netlify's 10 s limit
@@ -55,13 +56,14 @@ export async function askGroq({ question, result, fetchImpl = fetch }) {
       model, temperature: 0.2,
       max_completion_tokens: Number(process.env.GROQ_MAX_TOKENS) || (reasoning ? 850 : 350),
       ...(reasoning ? { reasoning_effort: 'low' } : {}),
-      messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: `Metrics JSON:\n${JSON.stringify(compactForModel(result))}\n\nQuestion: ${q}` }],
+      messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: `Metrics JSON:\n${context}\n\nQuestion: ${q}` }],
     }),
   });
   if (!res.ok) throw Object.assign(new Error(`Groq request failed (HTTP ${res.status})`), { status: 502 });
   const payload = await res.json();
   const answer = String(payload.choices?.[0]?.message?.content || '').replace(/[–—]/g, '-').trim();
-  const value = { configured: true, model: payload.model || process.env.GROQ_MODEL || DEFAULT_MODEL, answer, usage: payload.usage || null };
+  if (!answer) throw Object.assign(new Error('Groq returned no answer.'), { status: 502 });
+  const value = { configured: true, model: payload.model || model, answer, usage: payload.usage || null };
   answers.set(cacheKey, { at: Date.now(), value });
   if (answers.size > 50) answers.delete(answers.keys().next().value);
   return value;

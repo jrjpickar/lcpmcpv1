@@ -25,7 +25,7 @@ const descriptions = {
 
 // Deterministic first pass so most delegations cost no extra Groq call.
 const intents = {
-  email: /\b(?:e-?mails?|inbox|mailbox|unread|needs? a reply|awaiting (?:a )?reply)\b/i,
+  email: /\b(?:e-?mails?|inbox|mailbox|unread|replies|reply to|sender|subject line|needs? a reply|awaiting (?:a )?reply)\b/i,
   gemini: /\b(?:gemini|second opinion)\b/i,
   cloudflare: /\b(?:cloudflare|workers ai|llama|third opinion)\b/i,
   market: /\b(?:fed|federal reserve|interest rates?|mortgage rates?|census|housing (?:market|starts|news)|market news|inflation|economy)\b/i,
@@ -35,6 +35,7 @@ const intents = {
   systems: /\b(?:kpis?|metrics?|dials?|connect rate|talk time|texts?|sms|opportunit(?:y|ies)|qualified|leads?|reps?|speed to lead|opt-?outs?|fees?|accounting|coverage|health|sources?|workflows?)\b/i,
 };
 export function routeIntent(prompt, bots = []) {
+  if (/\b(?:draft|compose|write|search|find|read)\b[^.!?]{0,60}\b(?:e-?mail|inbox|mailbox|reply|sender|subject)\b/i.test(prompt)) return 'email';
   const hits = Object.entries(intents).filter(([, pattern]) => pattern.test(prompt)).map(([id]) => id);
   for (const bot of bots) {
     const name = bot.name.toLowerCase();

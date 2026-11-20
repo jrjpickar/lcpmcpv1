@@ -128,7 +128,8 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
   const newChat = node('button', { className: 'btn jarvis-new', type: 'button', onclick: () => openThread(null) }, '+ New chat');
   const threadList = node('ul', { className: 'jarvis-threads-list' });
   const search = node('input', { className: 'ctl', type: 'search', placeholder: 'Search chats', maxLength: 80, ariaLabel: 'Search chats' });
-  const sidebar = node('aside', { className: 'jarvis-threads' }, newChat, search, threadList);
+  const topic = node('select', { className: 'ctl', ariaLabel: 'Chat topic', onchange: () => renderThreads() });
+  const sidebar = node('aside', { className: 'jarvis-threads' }, newChat, search, topic, threadList);
 
   const log = node('div', { className: 'jarvis-log' });
   log.setAttribute('aria-live', 'polite');
@@ -138,13 +139,88 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
   const composer = node('form', { className: 'jarvis-composer' }, prompt, send);
   const chat = node('div', { className: 'jarvis-chat' }, log, chips, composer);
 
+  function dataPanel(title, view, render) {
+    const output = node('div', { className: 'jarvis-text', role: 'status' });
+    const refresh = node('button', { type: 'button', className: 'btn' }, 'Refresh');
+    async function load() {
+      refresh.disabled = true;
+      output.textContent = 'Loading…';
+      try {
+        const data = await call('/api/jarvis?view=' + view);
+        if (details.open) render(output, data);
+      } catch (error) {
+        if (details.open) output.textContent = error.message;
+      } finally {
+        refresh.disabled = false;
+      }
+    }
+    refresh.onclick = load;
+    const details = node('details', { className: 'jarvis-learning', ontoggle: () => {
+      if (details.open && !refresh.disabled) void load();
+      if (!details.open) output.replaceChildren();
+    } }, node('summary', {}, title), refresh, output);
+    return details;
+  }
+
+  const mailbox = dataPanel('Mailbox snapshot', 'mail', (output, snapshot) => {
+    if (!snapshot.configured) {
+      output.textContent = 'Connect an email source to view the mailbox.';
+      return;
+    }
+    const messages = snapshot.messages || [];
+    const filter = node('input', { className: 'ctl', type: 'search', placeholder: 'Filter sender, subject or text', ariaLabel: 'Filter mailbox snapshot' });
+    const unread = node('input', { type: 'checkbox' });
+    const list = node('ul', {});
+    function render() {
+      const query = filter.value.trim().toLowerCase();
+      const matches = messages.filter(message => (!unread.checked || message.unread === true)
+        && [message.from, message.subject, message.text].some(value => String(value || '').toLowerCase().includes(query)));
+      list.replaceChildren(...matches.map(message => node('li', {},
+        node('details', {}, node('summary', {}, (message.unread ? 'Unread · ' : '') + message.subject),
+          node('p', {}, [message.from, message.receivedAt && new Date(message.receivedAt).toLocaleString()].filter(Boolean).join(' · ')),
+          node('p', {}, message.text)))));
+      if (!matches.length) list.append(node('li', {}, 'No messages match.'));
+    }
+    filter.oninput = unread.onchange = render;
+    render();
+    const asOf = snapshot.asOf || snapshot.syncedAt;
+    const summary = node('button', { type: 'button', className: 'btn', onclick: () => {
+      if (busy) return;
+      roleSelect.value = 'email';
+      roleSelect.onchange();
+      prompt.value = 'Summarize the mailbox snapshot and flag replies and deadlines.';
+      prompt.focus();
+    } }, 'Prepare summary request');
+    output.replaceChildren(node('p', {}, [
+      snapshot.source === 'sample' ? 'Sample mailbox' : 'Mailbox snapshot',
+      asOf && new Date(asOf).toLocaleString(),
+      snapshot.stats?.unreadIncoming != null && snapshot.stats.unreadIncoming + ' unread in inbox',
+      snapshot.stale && 'Stale snapshot',
+      snapshot.messagesAvailable === false && 'Some messages unavailable',
+    ].filter(Boolean).join(' · ')), filter,
+    messages.some(message => typeof message.unread === 'boolean') && node('label', { className: 'jarvis-inline' }, unread, 'Unread only'),
+    summary, list);
+  });
+
+  const modelStatus = dataPanel('Groq model status', 'models', (output, models) => {
+    if (!models.configured) {
+      output.textContent = 'Groq is not configured.';
+      return;
+    }
+    output.replaceChildren(
+      node('p', {}, 'Primary ' + models.primary + ' · Backup ' + models.backup),
+      node('p', {}, models.active ? 'Last successful model in this instance: ' + models.active : 'No successful request recorded in this instance.'),
+      models.lastFailure && node('p', {}, (models.lastFailure.status ? 'HTTP ' + models.lastFailure.status : 'Connection failure') + ' · ' + new Date(models.lastFailure.at).toLocaleString()),
+      models.retryAt && node('p', {}, 'Primary retry after ' + new Date(models.retryAt).toLocaleString()));
+  });
+
   const learning = node('details', { className: 'jarvis-learning' });
   const instructions = instructionsForm({ call });
   const instructionsBox = node('details', { className: 'jarvis-learning', ontoggle: () => { if (instructionsBox.open) instructions.load(); } },
     node('summary', {}, 'Custom instructions (all agents)'), instructions);
   const panel = node('section', { className: 'card studio-card jarvis' },
     node('div', { className: 'jarvis-head' }, node('h2', {}, 'JARVIS'), node('label', { className: 'jarvis-inline' }, roleSelect), engineField, badge, exportButton),
-    node('div', { className: 'jarvis-layout' }, sidebar, chat), status, instructionsBox, learning);
+    node('div', { className: 'jarvis-layout' }, sidebar, chat), status, mailbox, modelStatus, instructionsBox, learning);
 
   prompt.onkeydown = event => {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
@@ -159,12 +235,15 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
       renderLearning(true);
       return;
     }
+    if (roleSelect.value === role) return;
     role = roleSelect.value;
     engineField.hidden = role !== 'build';
     threadId = null;
     messages = [];
     query = '';
     search.value = '';
+    threads = [];
+    renderThreads();
     renderLog();
     refresh(true);
   };
@@ -202,6 +281,7 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
   function setBusy(value) {
     busy = value;
     for (const control of [roleSelect, engine, prompt, send, newChat, search]) control.disabled = value;
+    topic.disabled = value || Boolean(query) || topic.options.length < 2;
   }
 
   function renderBadge() {
@@ -213,7 +293,12 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
   }
 
   function renderThreads(results = null) {
-    const list = results || threads;
+    const selected = topic.value;
+    const topics = [...new Set(threads.map(entry => entry.topic || 'General'))].sort();
+    topic.replaceChildren(new Option('All topics', ''), ...topics.map(name => new Option(name, name)));
+    topic.value = topics.includes(selected) ? selected : '';
+    topic.disabled = Boolean(results) || busy || !topics.length;
+    const list = results || threads.filter(entry => !topic.value || (entry.topic || 'General') === topic.value);
     const act = (label, title, handler) => node('button', { type: 'button', className: 'jarvis-icon', title, ariaLabel: title, onclick: handler }, label);
     threadList.replaceChildren(...list.map(entry => {
       const open = node('button', { type: 'button', className: 'jarvis-thread' + (entry.id === threadId ? ' active' : ''), onclick: () => openThread(entry.id) },
@@ -257,7 +342,7 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
     const name = node('input', { className: 'ctl', maxLength: 40, required: true, placeholder: 'Bot name, e.g. Offer Coach', value: bot?.name || '' });
     const description = node('input', { className: 'ctl', maxLength: 200, placeholder: 'What it is for (optional)', value: bot?.description || '' });
     const text = node('textarea', { className: 'ctl', maxLength: 1500, required: true, rows: 3, placeholder: 'Instructions for this bot', value: bot?.instructions || '' });
-    const context = node('select', { className: 'ctl' }, new Option('No data', 'none'), new Option('LCP report (selected filters)', 'metrics'));
+    const context = node('select', { className: 'ctl' }, new Option('No data', 'none'), new Option('LCP report (selected filters)', 'metrics'), new Option('Mailbox snapshot', 'mail'));
     context.value = bot?.context || 'none';
     return node('form', { className: 'jarvis-bot-form', onsubmit: async event => {
       event.preventDefault();

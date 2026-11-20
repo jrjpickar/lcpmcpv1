@@ -51,14 +51,20 @@ async function groqStatus(env, fetchImpl) {
 }
 
 let cached;
-export async function loadBrainStatus(env = process.env, fetchImpl = fetch) {
+export async function loadBrainStatus(env = process.env, fetchImpl = fetch, { fresh = false } = {}) {
   if (env.DATA_MODE === 'sample') return { sample: true };
   const load = async () => {
-    const [billing, groq] = await Promise.all([balanceStatus(env, fetchImpl), groqStatus(env, fetchImpl)]);
-    return { billing, groq };
+    const started = Date.now();
+    const timed = async run => {
+      const start = Date.now();
+      const result = await run(env, fetchImpl);
+      return { ...result, elapsedMs: Date.now() - start };
+    };
+    const [billing, groq] = await Promise.all([timed(balanceStatus), timed(groqStatus)]);
+    return { billing, groq, checkedAt: new Date().toISOString(), elapsedMs: Date.now() - started };
   };
   if (env !== process.env || fetchImpl !== fetch) return load();
-  if (cached?.until > Date.now()) return cached.result;
+  if (cached?.until === Infinity || (!fresh && cached?.until > Date.now())) return cached.result;
   const entry = { until: Infinity };
   entry.result = load().then(result => {
     entry.until = Date.now() + ((result.billing.status === 'down' || result.groq.status === 'down') ? 30000 : 120000);

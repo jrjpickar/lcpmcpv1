@@ -32,9 +32,9 @@ export const sampleMailbox = () => ({
   source: 'sample', syncedAt: new Date().toISOString(), asOf: new Date().toISOString(),
   stats: { unreadIncoming: 5, urgentUnread: 1, awaitingReply: 4 },
   messages: [
-    { subject: 'Re: Your offer on 1420 Cedar Ave, Long Beach', receivedAt: new Date(Date.now() - 3600e3).toISOString(), text: 'Seller asks if we can close in 21 days and cover the back taxes. Wants an answer by Friday.' },
-    { subject: 'Escrow opened: 88 Palm Dr', receivedAt: new Date(Date.now() - 7200e3).toISOString(), text: 'Title opened escrow. EMD of $5,000 due within 3 business days.' },
-    { subject: 'Buyer interest: Compton 3/2', receivedAt: new Date(Date.now() - 86400e3).toISOString(), text: 'Cash buyer wants photos and the assignment fee before a walkthrough.' },
+    { unread: true, subject: 'Re: Your offer on 1420 Cedar Ave, Long Beach', receivedAt: new Date(Date.now() - 3600e3).toISOString(), text: 'Seller asks if we can close in 21 days and cover the back taxes. Wants an answer by Friday.' },
+    { unread: true, subject: 'Escrow opened: 88 Palm Dr', receivedAt: new Date(Date.now() - 7200e3).toISOString(), text: 'Title opened escrow. EMD of $5,000 due within 3 business days.' },
+    { unread: false, subject: 'Buyer interest: Compton 3/2', receivedAt: new Date(Date.now() - 86400e3).toISOString(), text: 'Cash buyer wants photos and the assignment fee before a walkthrough.' },
   ],
   messagesAvailable: true,
 });
@@ -64,6 +64,7 @@ export async function fetchMailbox({ env = process.env, fetchImpl = fetch } = {}
       if (typeof message?.subject !== 'string' || typeof message.text !== 'string') continue;
       messages.push({
         subject: excerpt(message.subject, 200),
+        ...(typeof message.unread === 'boolean' ? { unread: message.unread } : {}),
         ...(typeof message.from === 'string' ? { from: excerpt(message.from, 120) } : {}),
         receivedAt: typeof message.receivedAt === 'string' ? message.receivedAt.slice(0, 40) : null,
         text: excerpt(message.text, 700),

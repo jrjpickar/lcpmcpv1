@@ -207,7 +207,10 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
     <section>Outbound calls<strong id="brainCalls">—</strong><small id="brainCallDetail"></small></section>
     <section>Outbound SMS<strong id="brainSms">—</strong><small id="brainSmsDetail"></small></section>
     <div class="meta" id="brainActivityMeta" aria-live="polite"></div><button type="button" class="btn" id="brainRetry" hidden>Retry activity</button>
-  </div><div id="brainAgents"></div><div class="brain" id="brain3d"><div class="brain-top"><h2>LCP Brain</h2><div class="meta" id="brainMeta"></div></div><div class="brain-hint">Drag to rotate · scroll to zoom · click a building</div></div></div>
+  </div><details class="card" id="brainDiagnostics" hidden><summary>Integration diagnostics</summary>
+    <button type="button" class="btn" id="brainCheck">Run fresh checks</button>
+    <ul id="brainChecks" aria-live="polite"></ul>
+  </details><div id="brainAgents"></div><div class="brain" id="brain3d"><div class="brain-top"><h2>LCP Brain</h2><div class="meta" id="brainMeta"></div></div><div class="brain-hint">Drag to rotate · scroll to zoom · click a building</div></div></div>
 
   <!-- SALES -->
   <div class="view on" id="v-sales">
@@ -778,14 +781,35 @@ function loadBrainActivity(){
   });
 }
 
-function refreshBrainStatus(){
+function refreshBrainStatus(fresh){
   if (STATIC) return;
-  cachedApi('/api/brain-status').then(function(status){
+  $('brainDiagnostics').hidden = false;
+  if (fresh) {
+    reads.delete('/api/brain-status');
+    $('brainCheck').disabled = true;
+  }
+  (fresh ? api('/api/brain-status?fresh=1') : cachedApi('/api/brain-status')).then(function(status){
     brainStatus = status;
+    var lines = [];
+    if (status.sample) lines.push('Sample mode · no live checks');
+    if (status.checkedAt) lines.push('Checked ' + new Date(status.checkedAt).toLocaleString() + ' · ' + status.elapsedMs + ' ms');
+    var labels = {ghl:'HighLevel',dialer:'Triple Line',ledger:'Ledger',workflows:'Workflow feed'};
+    Object.keys(labels).forEach(function(id){
+      if (!status.sample) lines.push(labels[id] + ' · ' + (status.sources?.[id] ? 'Configured' : 'Not configured'));
+    });
+    [['Twilio billing',status.billing],['Groq',status.groq]].forEach(function(pair){
+      if (pair[1]) lines.push(pair[0] + ' · ' + pair[1].detail + ' · ' + pair[1].elapsedMs + ' ms');
+    });
+    $('brainChecks').replaceChildren(...lines.map(function(line){
+      var row = document.createElement('li'); row.textContent = line; return row;
+    }));
     showBrain();
   }).catch(function(){
+    $('brainChecks').textContent = 'Status request failed.';
     brainStatus = {billing:{status:'down',detail:'Status request failed'},groq:{status:'down',detail:'Status request failed'}};
     showBrain();
+  }).finally(function(){
+    if (fresh) $('brainCheck').disabled = false;
   });
 }
 
@@ -907,6 +931,7 @@ $('from').onchange = dateChange; $('to').onchange = dateChange;
 $('rep').onchange = function(){ state.rep = this.value; load(); };
 $('locBy').querySelectorAll('button').forEach(function(b){ b.onclick = function(){ state.locBy = b.dataset.l; $('locBy').querySelectorAll('button').forEach(function(x){ x.setAttribute('aria-pressed', x === b); }); renderOpps(last); }; });
 $('brainRetry').onclick = loadBrainActivity;
+$('brainCheck').onclick = function(){ refreshBrainStatus(true); };
 $('askBtn').onclick = ask; $('q').onkeydown = function(e){ if (e.key === 'Enter') ask(); };
 var tip = $('tip');
 document.addEventListener('mousemove', function(e){

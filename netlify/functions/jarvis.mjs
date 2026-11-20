@@ -1,7 +1,7 @@
 import { gooseModel } from './lib/goose.mjs';
 import { brainEditMessage, brainHealthIntent } from '../../public/jarvis-intent.mjs';
 import { agentNames, builtinRoles, modelTimeout, cloudflareModel, CLOUDFLARE_MODEL, compileAgents, geminiModel, GEMINI_MODEL, groqModel, latestNews, rolePattern } from './lib/jarvis-agents.mjs';
-import { DEFAULT_MODEL } from './lib/groq.mjs';
+import { createGroqFailover } from './lib/jarvis-failover.mjs';
 import { createMemory, guidanceFor, historyFor, limits, openJarvisStore, sharedFor, validId } from './lib/jarvis-memory.mjs';
 import { INSTRUCTIONS_KEY, instructionsText } from './jarvis-instructions.mjs';
 import { mailboxContext, mailSettings } from './lib/jarvis-mail.mjs';
@@ -74,10 +74,25 @@ function emailModelFor({ env, fetchImpl, usage, geminiKey, groq }) {
 
 export function createJarvisHandler({ env = process.env, fetchImpl = fetch, readSystems = systemContext, createGooseModel = gooseModel, openStore = () => openJarvisStore(env) } = {}) {
   let running = false;
+  const timeoutMs = modelTimeout(env);
+  const groq = createGroqFailover({ env, fetchImpl, timeoutMs });
   return async function handler(request) {
-    if (request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405, { allow: 'POST' });
+    if (!['GET', 'POST'].includes(request.method)) return json({ error: 'Method not allowed.' }, 405, { allow: 'GET, POST' });
     const access = jarvisAccess(request, env);
     if (!access) return json({ error: 'Administrator key rejected.' }, 401);
+    if (request.method === 'GET') {
+      const view = new URL(request.url).searchParams.get('view');
+      if (view === 'models') return json({ configured: Boolean(env.GROQ_API_KEY), ...groq.status() });
+      if (view !== 'mail') return json({ error: 'Select a JARVIS view.' }, 400);
+      if (!access.mailbox) return json({ error: 'Mailbox access is not available.' }, 403);
+      try {
+        if (env.DATA_MODE !== 'sample' && !mailSettings(env).configured) return json({ configured: false });
+        const store = env.DATA_MODE === 'sample' ? null : await Promise.resolve().then(openStore).catch(() => null);
+        return json({ configured: true, ...await mailboxContext({ env, fetchImpl, store }) });
+      } catch {
+        return json({ error: 'The mailbox snapshot is unavailable.' }, 502);
+      }
+    }
     if (request.headers.get('origin') !== new URL(request.url).origin) return json({ error: 'Origin rejected.' }, 403);
     if (request.headers.get('content-type')?.split(';')[0] !== 'application/json') return json({ error: 'Expected JSON.' }, 415);
     let role, prompt, previousTask, filters, modules, intent, engine, threadId, newThread, plan;
@@ -205,7 +220,7 @@ export function createJarvisHandler({ env = process.env, fetchImpl = fetch, read
       }
       if (['qc', 'main'].includes(role)) context.modules = Array.isArray(modules) ? modules : [];
       const usage = { total: 0, calls: 0 };
-      const model = groqModel(key, fetchImpl, { model: env.JARVIS_GROQ_MODEL?.trim() || DEFAULT_MODEL, usage, timeoutMs: modelTimeout(env) });
+      const model = groqModel(key, groq.fetch, { model: groq.primary, usage, timeoutMs });
       const deps = {
         gemini: geminiKey ? geminiModel(geminiKey, fetchImpl, { model: env.GEMINI_MODEL?.trim() || GEMINI_MODEL, usage, timeoutMs: modelTimeout(env) }) : null,
         cloudflare: cfAccount && cfToken ? cloudflareModel(cfAccount, cfToken, fetchImpl, { model: env.CLOUDFLARE_AI_MODEL?.trim() || CLOUDFLARE_MODEL, usage, timeoutMs: modelTimeout(env) }) : null,

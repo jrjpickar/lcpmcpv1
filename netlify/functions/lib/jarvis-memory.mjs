@@ -1,3 +1,4 @@
+import { topicFor } from '../../../public/topic-rules.mjs';
 // Persistent chat threads and learned memory for the LCP JARVIS agents.
 // Each agent keeps its own threads, operator lessons, approved answers and a playbook that a reflection pass
 // rewrites from feedback. Also: shared company memory, playbook versions with automatic rollback, pinned chats,
@@ -97,7 +98,8 @@ export const botContexts = ['metrics', 'mail', 'none'];
 export function createMemory(store) {
   const memory = {
     async listThreads(role) {
-      return sortThreads((await read(store, keys.index(role), () => ({ threads: [] }))).threads);
+      const { threads } = await read(store, keys.index(role), () => ({ threads: [] }));
+      return sortThreads(threads.map(entry => ({ ...entry, topic: entry.topic || topicFor(entry.title) })));
     },
 
     async getThread(role, id) {
@@ -112,12 +114,12 @@ export function createMemory(store) {
     },
 
     async createThread(role, firstPrompt) {
-      const thread = { id: randomUUID(), role, title: clip(firstPrompt, 60) || 'New chat', createdAt: now(), updatedAt: now(), messages: [] };
+      const thread = { id: randomUUID(), role, title: clip(firstPrompt, 60) || 'New chat', topic: topicFor(firstPrompt), createdAt: now(), updatedAt: now(), messages: [] };
       await store.setJSON(keys.thread(role, thread.id), thread, { onlyIfNew: true });
       const dropped = [];
       await update(store, keys.index(role), () => ({ threads: [] }), index => {
         dropped.length = 0;
-        index.threads.unshift({ id: thread.id, title: thread.title, updatedAt: thread.updatedAt, count: 0 });
+        index.threads.unshift({ id: thread.id, title: thread.title, topic: thread.topic, updatedAt: thread.updatedAt, count: 0 });
         // Pinned chats are never trimmed. The oldest unpinned chat goes first.
         while (index.threads.length > limits.threads) {
           const position = index.threads.findLastIndex(entry => !entry.pinned);
@@ -141,7 +143,7 @@ export function createMemory(store) {
       });
       await update(store, keys.index(role), () => ({ threads: [] }), index => {
         const position = index.threads.findIndex(entry => entry.id === id);
-        const entry = position >= 0 ? index.threads.splice(position, 1)[0] : { id, title: data.title };
+        const entry = position >= 0 ? index.threads.splice(position, 1)[0] : { id, title: data.title, topic: data.topic || topicFor(data.title) };
         index.threads.unshift({ ...entry, updatedAt: data.updatedAt, count: data.messages.length });
       });
       return { userMessage, reply, title: data.title };
