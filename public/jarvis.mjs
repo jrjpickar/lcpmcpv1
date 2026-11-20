@@ -1,3 +1,4 @@
+import { mountTopics } from './jarvis-topics.mjs';
 import { brainEditMessage, brainHealthIntent, formatBrainHealth } from './jarvis-intent.mjs';
 import { instructionsForm } from './jarvis-instructions.mjs';
 
@@ -214,13 +215,16 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
       models.retryAt && node('p', {}, 'Primary retry after ' + new Date(models.retryAt).toLocaleString()));
   });
 
+  const sphere = node('section', { className: 'jarvis-topics', ariaLabel: 'JARVIS topic sphere' });
+  const topicMap = mountTopics(sphere, openThread, renderThreadRow,
+    () => key() ? call('/api/jarvis?view=models') : Promise.resolve({ configured: false }));
   const learning = node('details', { className: 'jarvis-learning' });
   const instructions = instructionsForm({ call });
   const instructionsBox = node('details', { className: 'jarvis-learning', ontoggle: () => { if (instructionsBox.open) instructions.load(); } },
     node('summary', {}, 'Custom instructions (all agents)'), instructions);
   const panel = node('section', { className: 'card studio-card jarvis' },
     node('div', { className: 'jarvis-head' }, node('h2', {}, 'JARVIS'), node('label', { className: 'jarvis-inline' }, roleSelect), engineField, badge, exportButton),
-    node('div', { className: 'jarvis-layout' }, sidebar, chat), status, mailbox, modelStatus, instructionsBox, learning);
+    sphere, node('div', { className: 'jarvis-layout' }, sidebar, chat), status, mailbox, modelStatus, instructionsBox, learning);
 
   prompt.onkeydown = event => {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
@@ -243,6 +247,7 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
     query = '';
     search.value = '';
     threads = [];
+    topicMap.close(false);
     renderThreads();
     renderLog();
     refresh(true);
@@ -280,6 +285,7 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
 
   function setBusy(value) {
     busy = value;
+    topicMap.setBusy(value);
     for (const control of [roleSelect, engine, prompt, send, newChat, search]) control.disabled = value;
     topic.disabled = value || Boolean(query) || topic.options.length < 2;
   }
@@ -299,23 +305,26 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
     topic.value = topics.includes(selected) ? selected : '';
     topic.disabled = Boolean(results) || busy || !topics.length;
     const list = results || threads.filter(entry => !topic.value || (entry.topic || 'General') === topic.value);
-    const act = (label, title, handler) => node('button', { type: 'button', className: 'jarvis-icon', title, ariaLabel: title, onclick: handler }, label);
-    threadList.replaceChildren(...list.map(entry => {
-      const open = node('button', { type: 'button', className: 'jarvis-thread' + (entry.id === threadId ? ' active' : ''), onclick: () => openThread(entry.id) },
-        node('span', {}, (entry.pinned ? '📌 ' : '') + entry.title),
-        node('small', {}, results ? entry.snippet || 'Title match' : new Date(entry.updatedAt).toLocaleDateString()));
-      return node('li', {}, open,
-        act(entry.pinned ? '◉' : '○', entry.pinned ? 'Unpin chat' : 'Pin chat', () => threadAction({ action: 'pin', threadId: entry.id, pinned: !entry.pinned })),
-        act('✎', 'Rename chat', () => {
-          const title = window.prompt('Chat title', entry.title);
-          if (title?.trim()) threadAction({ action: 'rename', threadId: entry.id, text: title.trim().slice(0, 60) });
-        }),
-        act('×', 'Delete chat', async () => {
-          if (!confirm('Delete this chat? Learned lessons stay.')) return;
-          if (await threadAction({ action: 'delete', threadId: entry.id }) && entry.id === threadId) { threadId = null; messages = []; renderLog(); }
-        }));
-    }));
+    if (!results) topicMap.update(threads);
+    threadList.replaceChildren(...list.map(entry => renderThreadRow(entry, () => openThread(entry.id), Boolean(results))));
     if (!list.length) threadList.append(node('li', { className: 'jarvis-empty' }, results ? 'No matching chats.' : 'No saved chats yet.'));
+  }
+
+  function renderThreadRow(entry, openChat, searching = false) {
+    const act = (label, title, handler) => node('button', { type: 'button', className: 'jarvis-icon', title, ariaLabel: title, onclick: handler }, label);
+    const open = node('button', { type: 'button', className: 'jarvis-thread' + (entry.id === threadId ? ' active' : ''), onclick: openChat },
+      node('span', {}, (entry.pinned ? '📌 ' : '') + entry.title),
+      node('small', {}, searching ? entry.snippet || 'Title match' : new Date(entry.updatedAt).toLocaleDateString()));
+    return node('li', {}, open,
+      act(entry.pinned ? '◉' : '○', entry.pinned ? 'Unpin chat' : 'Pin chat', () => threadAction({ action: 'pin', threadId: entry.id, pinned: !entry.pinned })),
+      act('✎', 'Rename chat', () => {
+        const title = window.prompt('Chat title', entry.title);
+        if (title?.trim()) threadAction({ action: 'rename', threadId: entry.id, text: title.trim().slice(0, 60) });
+      }),
+      act('×', 'Delete chat', async () => {
+        if (!confirm('Delete this chat? Learned lessons stay.')) return;
+        if (await threadAction({ action: 'delete', threadId: entry.id }) && entry.id === threadId) { threadId = null; messages = []; renderLog(); }
+      }));
   }
 
   async function threadAction(body) {
@@ -646,7 +655,10 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
       const meta = {};
       for (const name of ['trace', 'approved', 'buildSummary', 'engine', 'unavailable', 'sources', 'modules', 'usage', 'agent', 'plan', 'planHash', 'warnings', 'validation', 'execute', 'draft', 'provider']) if (result[name] !== undefined) meta[name] = result[name];
       messages.push({ id: result.messageId, role: 'assistant', content: result.answer, meta });
-      if (result.threadId) threadId = result.threadId;
+      if (result.threadId) {
+        if (command.newThread) topicMap.classified(result.threadId);
+        threadId = result.threadId;
+      }
       if (result.memoryError) status.textContent = result.memoryError;
       refresh();
     } catch (error) {
