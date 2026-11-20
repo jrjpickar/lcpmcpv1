@@ -7,6 +7,7 @@
 // Sample mode (DATA_MODE=sample, or GHL not configured) uses public/sample-data.js only.
 // Results are cached per function instance for CACHE_SECONDS (default 300).
 
+import { setTimeout as delay } from 'node:timers/promises';
 import Sample from '../../../public/sample-data.js';
 import Metrics from '../../../public/lcp-metrics.js';
 
@@ -16,6 +17,7 @@ const envInt = (name, fallback) => { const n = Number.parseInt(process.env[name]
 const cache = new Map();
 const pending = new Map();
 const reference = new Map();
+const reportBudgetMs = 7000;
 
 function cachedReference(key, ttl, load, fetchImpl) {
   if (fetchImpl !== fetch) return load();
@@ -67,6 +69,7 @@ export async function loadData({ from, to, fetchImpl = fetch } = {}) {
   if (hit && Date.now() - hit.at < envInt('CACHE_SECONDS', 300) * 1000) return hit.data;
   if (pending.has(key)) return pending.get(key);
   const request = loadLiveData(start, from, to, lookback, fetchImpl).then(data => {
+    if (data.meta.timedOut && hit) return { ...hit.data, meta: { ...hit.data.meta, warnings: ['Live refresh timed out. Showing the last complete report.'], stale: true } };
     if (!data.meta.warnings.length) {
       cache.set(key, { at: Date.now(), data });
       if (cache.size > 12) cache.delete(cache.keys().next().value);
@@ -78,22 +81,42 @@ export async function loadData({ from, to, fetchImpl = fetch } = {}) {
 }
 
 async function loadLiveData(start, from, to, lookback, fetchImpl) {
+  const deadline = AbortSignal.timeout(reportBudgetMs);
+  const reportFetch = (url, options = {}) => {
+    deadline.throwIfAborted();
+    return fetchImpl(url, {
+      ...options,
+      signal: options.signal ? AbortSignal.any([deadline, options.signal]) : deadline,
+    });
+  };
   const warnings = [];
-  const safe = async (label, fn, fallback) => { try { return await fn(); } catch (error) { warnings.push(`${label}: ${error.message}`); return fallback; } };
-  const users = await safe('GHL users', () => ghlUsers(fetchImpl), {});
-  const [calls, opportunities, openOpps, sms, inboundCalls, ledger] = await Promise.all([
-    safe('Dialer', () => dialerCalls(start, to, fetchImpl), []),
-    safe('GHL opportunities', () => ghlOpportunities(start, users, fetchImpl), []),
-    safe('GHL open opportunities', () => ghlOpportunities(null, users, fetchImpl, 'open'), []),
-    safe('GHL SMS', () => ghlSms(start, to, users, fetchImpl), []),
-    safe('GHL inbound calls', () => ghlInboundCalls(Metrics.shiftDay(to, -Math.min(31, lookback)), to, fetchImpl), []),
-    safe('Ledger', () => cachedReference('ledger', 300000, () => ledgerExport(fetchImpl), fetchImpl), { deals: [], spend: [], ap: null }),
+  const safe = async (label, fn, fallback) => {
+    try { return await fn(); } catch (error) {
+      warnings.push(`${label}: ${deadline.aborted ? 'Report time limit reached' : error.message}`);
+      return fallback;
+    }
+  };
+  const users = safe('GHL users', () => cachedReference('users', 600000, () => fetchGhlUsers(reportFetch, deadline), fetchImpl), {});
+  const pipelines = safe('GHL pipelines', () => cachedReference('pipelines', 600000,
+    () => ghl(`/opportunities/pipelines?locationId=${encodeURIComponent(env('GHL_LOCATION_ID'))}`, { fetchImpl: reportFetch, deadline }), fetchImpl), {});
+  const opportunitiesRead = safe('GHL opportunities', () => ghlOpportunities(start, pipelines, users, reportFetch, 'all', deadline), []);
+  const [calls, opportunities, openOpps, sms, inboundCalls, ledger, contacts] = await Promise.all([
+    safe('Dialer', () => dialerCalls(start, to, reportFetch), []),
+    opportunitiesRead,
+    safe('GHL open opportunities', () => ghlOpportunities(null, pipelines, users, reportFetch, 'open', deadline), []),
+    safe('GHL SMS', async () => {
+      const messages = await ghlSms(start, to, {}, reportFetch, deadline);
+      const names = await users;
+      return messages.map(message => ({ ...message, rep: names[message.rep] || message.rep }));
+    }, []),
+    safe('GHL inbound calls', () => ghlInboundCalls(Metrics.shiftDay(to, -Math.min(31, lookback)), to, reportFetch, undefined, deadline), []),
+    safe('Ledger', () => cachedReference('ledger', 300000, () => ledgerExport(reportFetch), fetchImpl), { deals: [], spend: [], ap: null }),
+    safe('GHL contacts', async () => ghlContacts(await opportunitiesRead, from, to, reportFetch, deadline), []),
   ]);
-  const contacts = await safe('GHL contacts', () => ghlContacts(opportunities, from, to, fetchImpl), []);
   const seen = new Set(opportunities.map(o => o.id));
   for (const o of openOpps) if (!seen.has(o.id)) opportunities.push(o); // stage aging needs every open deal, not only recent ones
   return { calls, sms, inboundCalls, contacts, opportunities, deals: ledger.deals, spend: ledger.spend, ap: ledger.ap,
-    meta: { mode: 'live', label: 'LIVE', loadedAt: new Date().toISOString(), from: start, to, warnings } };
+    meta: { mode: 'live', label: 'LIVE', loadedAt: new Date().toISOString(), from: start, to, warnings, timedOut: deadline.aborted } };
 }
 
 // ---------------- Dialer ----------------
@@ -138,13 +161,17 @@ export async function dialerCalls(from, to, fetchImpl = fetch) {
 }
 
 // ---------------- GHL ----------------
-async function ghl(path, { method = 'GET', body, version = '2021-07-28', fetchImpl = fetch } = {}) {
+async function ghl(path, { method = 'GET', body, version = '2021-07-28', fetchImpl = fetch, deadline } = {}) {
   for (let attempt = 0; attempt < 4; attempt++) {
     const res = await fetchImpl(`${GHL_API}${path}`, {
       method, signal: AbortSignal.timeout(25000), body: body ? JSON.stringify(body) : undefined,
       headers: { Accept: 'application/json', Authorization: `Bearer ${env('GHL_ACCESS_TOKEN')}`, Version: version, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     });
-    if (res.status === 429 || res.status >= 500) { await new Promise(r => setTimeout(r, 600 * (attempt + 1))); continue; }
+    if (res.status === 429 || res.status >= 500) {
+      void res.body?.cancel().catch(() => {});
+      if (attempt < 3) await delay(600 * (attempt + 1), undefined, { signal: deadline });
+      continue;
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status} on ${path.split('?')[0]}`);
     return res.json();
   }
@@ -155,8 +182,8 @@ function ghlUsers(fetchImpl) {
   return cachedReference('users', 600000, () => fetchGhlUsers(fetchImpl), fetchImpl);
 }
 
-async function fetchGhlUsers(fetchImpl) {
-  const payload = await ghl(`/users/?locationId=${encodeURIComponent(env('GHL_LOCATION_ID'))}`, { fetchImpl });
+async function fetchGhlUsers(fetchImpl, deadline) {
+  const payload = await ghl(`/users/?locationId=${encodeURIComponent(env('GHL_LOCATION_ID'))}`, { fetchImpl, deadline });
   const map = {};
   for (const u of payload.users || []) map[u.id] = u.name || [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email || u.id;
   return map;
@@ -173,9 +200,8 @@ export function normalizeOpportunity(o, users = {}, pipelines = {}) {
   };
 }
 
-async function ghlOpportunities(start, users, fetchImpl, status = 'all') {
-  const loc = encodeURIComponent(env('GHL_LOCATION_ID'));
-  const payload = await cachedReference('pipelines', 600000, () => ghl(`/opportunities/pipelines?locationId=${loc}`, { fetchImpl }), fetchImpl);
+async function ghlOpportunities(start, pipelineRead, users, fetchImpl, status, deadline) {
+  const payload = await pipelineRead;
   const pipelines = Object.fromEntries((payload.pipelines || []).map(p => [p.id, { name: p.name, stages: Object.fromEntries((p.stages || []).map(s => [s.id, s.name])) }]));
   const startMs = start ? Date.parse(pacificMidnight(start)) : -Infinity;
   const out = [];
@@ -183,18 +209,19 @@ async function ghlOpportunities(start, users, fetchImpl, status = 'all') {
   for (let page = 0; page < envInt('GHL_MAX_OPP_PAGES', 60); page++) {
     const params = new URLSearchParams({ location_id: env('GHL_LOCATION_ID'), status, limit: '100', order: 'added_desc' });
     if (cursor) { params.set('start_after', cursor.startAfter); params.set('start_after_id', cursor.startAfterId); }
-    const payload = await ghl(`/opportunities/search?${params}`, { fetchImpl });
+    const payload = await ghl(`/opportunities/search?${params}`, { fetchImpl, deadline });
     const rows = payload.opportunities || [];
     let older = false;
-    for (const o of rows) { const n = normalizeOpportunity(o, users, pipelines); if (Date.parse(n.createdAt) < startMs) { older = true; continue; } out.push(n); }
+    for (const o of rows) { const n = normalizeOpportunity(o, {}, pipelines); if (Date.parse(n.createdAt) < startMs) { older = true; continue; } out.push(n); }
     if (older || rows.length < 100 || !payload.meta?.startAfterId) break;
     cursor = { startAfter: String(payload.meta.startAfter), startAfterId: payload.meta.startAfterId };
   }
-  return out;
+  const names = await users;
+  return out.map(opportunity => ({ ...opportunity, rep: names[opportunity.rep] || opportunity.rep }));
 }
 
 // Only contacts behind opportunities in range are fetched (city / ZIP for the location view).
-async function ghlContacts(opportunities, from, to, fetchImpl) {
+async function ghlContacts(opportunities, from, to, fetchImpl, deadline) {
   const start = Date.parse(pacificMidnight(from)), end = Date.parse(pacificMidnight(Metrics.shiftDay(to, 1)));
   const ids = [...new Set(opportunities.filter(o => {
     const timestamp = Date.parse(o.createdAt);
@@ -202,7 +229,8 @@ async function ghlContacts(opportunities, from, to, fetchImpl) {
   }).map(o => o.contactId))].slice(0, envInt('GHL_MAX_CONTACTS', 400));
   const out = [];
   for (let i = 0; i < ids.length; i += 8) {
-    const batch = await Promise.all(ids.slice(i, i + 8).map(id => ghl(`/contacts/${encodeURIComponent(id)}`, { fetchImpl }).then(p => p.contact || p).catch(() => null)));
+    deadline?.throwIfAborted();
+    const batch = await Promise.all(ids.slice(i, i + 8).map(id => ghl(`/contacts/${encodeURIComponent(id)}`, { fetchImpl, deadline }).then(p => p.contact || p).catch(error => { if (deadline?.aborted) throw error; return null; })));
     for (const c of batch) if (c?.id) out.push({ id: c.id, name: c.contactName || [c.firstName, c.lastName].filter(Boolean).join(' '), city: c.city || '', zip: String(c.postalCode || '').slice(0, 5) });
   }
   return out;
@@ -216,14 +244,14 @@ export function normalizeSms(m, users = {}) {
   return out;
 }
 
-async function ghlSms(start, to, users, fetchImpl) {
+async function ghlSms(start, to, users, fetchImpl, deadline) {
   const out = [];
   let cursor = null;
   for (let page = 0; page < envInt('GHL_MAX_SMS_PAGES', 40); page++) {
     const params = new URLSearchParams({ locationId: env('GHL_LOCATION_ID'), channel: 'SMS', limit: '1000', sortBy: 'createdAt', sortOrder: 'desc',
       startDate: pacificMidnight(start), endDate: pacificMidnight(Metrics.shiftDay(to, 1)) });
     if (cursor) params.set('cursor', cursor);
-    const payload = await ghl(`/conversations/messages/export?${params}`, { fetchImpl, version: 'v3' });
+    const payload = await ghl(`/conversations/messages/export?${params}`, { fetchImpl, version: 'v3', deadline });
     for (const m of payload.messages || []) out.push(normalizeSms(m, users));
     cursor = payload.nextCursor;
     if (!cursor) break;
@@ -232,14 +260,14 @@ async function ghlSms(start, to, users, fetchImpl) {
 }
 
 // Inbound seller calls (GHL call messages), used only as speed-to-lead events.
-export async function ghlInboundCalls(start, to, fetchImpl = fetch, maxPages = envInt('GHL_MAX_CALL_PAGES', 6)) {
+export async function ghlInboundCalls(start, to, fetchImpl = fetch, maxPages = envInt('GHL_MAX_CALL_PAGES', 6), deadline) {
   const out = [];
   let cursor = null;
   for (let page = 0; page < maxPages; page++) {
     const params = new URLSearchParams({ locationId: env('GHL_LOCATION_ID'), channel: 'Call', limit: '1000', sortBy: 'createdAt', sortOrder: 'desc',
       startDate: pacificMidnight(start), endDate: pacificMidnight(Metrics.shiftDay(to, 1)) });
     if (cursor) params.set('cursor', cursor);
-    const payload = await ghl(`/conversations/messages/export?${params}`, { fetchImpl, version: 'v3' });
+    const payload = await ghl(`/conversations/messages/export?${params}`, { fetchImpl, version: 'v3', deadline });
     for (const m of payload.messages || []) if (String(m.direction || '').toLowerCase() === 'inbound' && m.contactId) out.push({ id: m.id || m.messageId, at: m.dateAdded || m.createdAt, contactId: m.contactId });
     cursor = payload.nextCursor;
     if (!cursor) break;

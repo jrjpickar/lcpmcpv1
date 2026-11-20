@@ -306,7 +306,7 @@ function cachedApi(path){
   if (hit && hit.until > Date.now()) return hit.result;
   var entry = { until: Date.now() + 120000 };
   entry.result = api(path).then(function(data){
-    if ((data.coverage?.calls?.partial || data.coverage?.sms?.partial) && reads.get(path) === entry) reads.delete(path);
+    if ((data.coverage?.calls?.partial || data.coverage?.sms?.partial || data.sources?.warnings?.length) && reads.get(path) === entry) reads.delete(path);
     return data;
   }).catch(function(e){ if (reads.get(path) === entry) reads.delete(path); throw e; });
   reads.set(path, entry);
@@ -368,7 +368,7 @@ function render(r){
   if (!state.from) { $('from').value = r.range.from; $('to').value = r.range.to; }
   var s = r.sources || {}, pill = $('pill');
   if (s.mode === 'sample') { pill.className = 'pill sample'; pill.textContent = 'Sample data'; pill.setAttribute('data-tip', 'Sandbox. No dialer, GHL, Ledger, workflow feed or Groq connection.'); }
-  else { var on = ['dialer','ghl','ledger','workflows','groq'].filter(function(k){ return s[k]; }); pill.className = 'pill live'; pill.textContent = 'Live'; pill.setAttribute('data-tip', 'Connected: ' + on.join(', ') + (s.warnings && s.warnings.length ? '\n' + s.warnings.join('\n') : '')); }
+  else { var on = ['dialer','ghl','ledger','workflows','groq'].filter(function(k){ return s[k]; }); pill.className = 'pill live'; pill.textContent = s.stale ? 'Last complete report' : s.warnings?.length ? 'Live · partial' : 'Live'; pill.setAttribute('data-tip', 'Connected: ' + on.join(', ') + (s.warnings && s.warnings.length ? '\n' + s.warnings.join('\n') : '')); }
   if (state.view === 'sales') { renderKpis(r); renderInsights(r); renderSignals(r); renderCalls(r); renderOpps(r); renderPath(r, 'sms'); renderPath(r, 'dial'); }
   if (state.view === 'accounting') renderAccounting(r);
   if (state.view === 'workflows') loadWorkflows();

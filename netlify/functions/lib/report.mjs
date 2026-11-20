@@ -12,7 +12,8 @@ export async function buildReport({ from, to, preset, rep } = {}) {
   const result = Metrics.compute(data, { ...range, rep: rep || '', compare: true, lookbackDays: Number(process.env.TOUCH_LOOKBACK_DAYS) || 60, alertConfig: alertConfig() });
   if (process.env.GHL_LOCATION_ID) result.links = { ghlContact: `${(process.env.GHL_APP_URL || 'https://app.gohighlevel.com').replace(/\/+$/, '')}/v2/location/${process.env.GHL_LOCATION_ID}/contacts/detail/` };
   if (data.meta?.mode === 'sample') result.ops = Sample.ops(); // 3D Brain is sandbox-only for now
-  result.sources = { ...sourceStatus(), label: data.meta?.label || '', loadedAt: data.meta?.loadedAt || data.meta?.generatedAt || null, warnings: data.meta?.warnings || [] };
+  result.sources = { ...sourceStatus(), label: data.meta?.label || '', loadedAt: data.meta?.loadedAt || data.meta?.generatedAt || null, warnings: data.meta?.warnings || [],
+    ...(data.meta?.stale ? { stale: true } : {}) };
   return result;
 }
 
