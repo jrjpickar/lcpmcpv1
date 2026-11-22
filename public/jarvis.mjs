@@ -10,8 +10,8 @@ export const agents = {
 };
 // Main dispatcher, Data sandbox, Email, optional agents on other providers, plus custom bots created in the Learning panel.
 const leadAgents = { main: 'Main (delegates)' };
-const extraAgents = { data: 'Data sandbox → QC', email: 'Email', gemini: 'Gemini (second opinion)', cloudflare: 'Workers AI (Llama)' };
-const names = { ...agents, main: 'Main', build: 'Build developer', data: 'Data sandbox', email: 'Email', gemini: 'Gemini', cloudflare: 'Workers AI', execute: 'Execute (validation only)' };
+const extraAgents = { research: 'Research and knowledge (cited)', data: 'Data sandbox → QC', email: 'Email', gemini: 'Gemini (second opinion)', cloudflare: 'Workers AI (Llama)' };
+const names = { ...agents, main: 'Main', build: 'Build developer', data: 'Data sandbox', email: 'Email', gemini: 'Gemini', cloudflare: 'Workers AI', research: 'Research', execute: 'Execute (validation only)' };
 
 const greetings = {
   systems: 'Systems and KPIs online. Ask about coverage, KPI changes, or what to fix first.',
@@ -23,6 +23,7 @@ const greetings = {
   email: 'Email agent online. Ask about unread mail, seller replies, escrow and title deadlines.',
   gemini: 'Gemini online. Second opinions, longer writing and general questions, with the selected report as context.',
   cloudflare: 'Workers AI online (Cloudflare, Llama). Fast drafts, rewrites, brainstorming and a third opinion.',
+  research: 'Research online. I search live LCP data, indexed documents, saved memory and the web, and cite every source.',
 };
 
 const suggestions = {
@@ -35,6 +36,7 @@ const suggestions = {
   email: ['Summarize unread mail and flag deadlines.', 'Which emails are waiting on a reply?'],
   gemini: ['Give me a second opinion on this period\'s numbers.', 'Draft a follow-up text for a seller who went quiet.'],
   cloudflare: ['Brainstorm 5 ways to lift connect rate.', 'Rewrite this seller text to sound friendlier.'],
+  research: ['What do our SOPs say about follow-up timing for hot sellers?', 'Look up the current Netlify background function limits.'],
 };
 const pct = value => (value === null || value === undefined ? 'n/a' : Math.round(value * 100) + '%');
 
@@ -539,6 +541,16 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
       }
       box.append(list);
     }
+    if (meta.citations?.length) {
+      const label = { live: 'Live MCP data', internal: 'Internal doc', memory: 'Memory', web: 'Web' };
+      const list = node('ol', { className: 'jarvis-sources' });
+      for (const cite of meta.citations) {
+        const url = cite.url ? URL.parse(cite.url) : null;
+        list.append(node('li', {}, '[' + cite.id + '] ' + (label[cite.type] || cite.type) + ': ',
+          url?.protocol === 'https:' ? node('a', { href: url.href, target: '_blank', rel: 'noopener noreferrer' }, cite.title || url.href) : (cite.title || cite.path || '')));
+      }
+      box.append(list);
+    }
     if (meta.modules?.length) {
       box.append(node('ul', {}, ...meta.modules.map(module => node('li', {}, module.title + ' · ' + module.page))));
       const add = node('button', { type: 'button', className: 'btn' }, 'Add to Studio draft');
@@ -653,7 +665,7 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
       if (role !== requestedRole) return;
       previousTasks.set(requestedRole, task);
       const meta = {};
-      for (const name of ['trace', 'approved', 'buildSummary', 'engine', 'unavailable', 'sources', 'modules', 'usage', 'agent', 'plan', 'planHash', 'warnings', 'validation', 'execute', 'draft', 'provider']) if (result[name] !== undefined) meta[name] = result[name];
+      for (const name of ['trace', 'approved', 'buildSummary', 'engine', 'unavailable', 'sources', 'modules', 'usage', 'agent', 'plan', 'planHash', 'warnings', 'validation', 'execute', 'draft', 'provider', 'citations', 'provenance', 'verification', 'taskId']) if (result[name] !== undefined) meta[name] = result[name];
       messages.push({ id: result.messageId, role: 'assistant', content: result.answer, meta });
       if (result.threadId) {
         if (command.newThread) topicMap.classified(result.threadId);

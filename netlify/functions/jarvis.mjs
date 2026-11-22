@@ -11,6 +11,9 @@ import { loadBrainStatus } from './lib/brain-status.mjs';
 import { buildReport, paramsFrom } from './lib/report.mjs';
 import { jarvisAccess, readBody } from './lib/studio.mjs';
 import { initialConfig, metrics, pages, trends, validateConfig } from '../../public/studio-schema.mjs';
+import { createIntel } from './lib/intel/orchestrator.mjs';
+import { compactForModel } from './lib/groq.mjs';
+import { MODEL_LOG_KEY, modelLogger, usageSummary, withCosts } from './lib/model-log.mjs';
 
 async function systemContext(filters) {
   const [report, health] = await Promise.all([
@@ -46,7 +49,7 @@ const execute = /^\s*\/execute\b/i;
 
 function assistantRecord(result) {
   const meta = {};
-  for (const name of ['trace', 'approved', 'buildSummary', 'engine', 'unavailable', 'usage', 'agent', 'plan', 'planHash', 'warnings', 'validation', 'mailAsOf', 'execute', 'draft', 'provider']) if (result[name] !== undefined) meta[name] = result[name];
+  for (const name of ['trace', 'approved', 'buildSummary', 'engine', 'unavailable', 'usage', 'agent', 'plan', 'planHash', 'warnings', 'validation', 'mailAsOf', 'execute', 'draft', 'provider', 'citations', 'provenance', 'verification', 'taskId']) if (result[name] !== undefined) meta[name] = result[name];
   if (result.sources?.length) meta.sources = result.sources.slice(0, 12);
   if (result.modules?.length) meta.modules = result.modules;
   if (meta.plan && Buffer.byteLength(JSON.stringify(meta.plan)) > 12000) delete meta.plan;
@@ -72,17 +75,26 @@ function emailModelFor({ env, fetchImpl, usage, geminiKey, groq }) {
   return { emailModel, emailProvider: () => last };
 }
 
-export function createJarvisHandler({ env = process.env, fetchImpl = fetch, readSystems = systemContext, createGooseModel = gooseModel, openStore = () => openJarvisStore(env) } = {}) {
+export function createJarvisHandler({ env = process.env, fetchImpl: rawFetch = fetch, readSystems = systemContext, createGooseModel = gooseModel, openStore = () => openJarvisStore(env), modelLog = env.MODEL_LOG !== 'off' } = {}) {
   let running = false;
+  // Model call log (ported from A2Z): one row per provider call, written after the reply, never blocking it.
+  // It only writes to storage this request already opened, so stateless calls keep their single optional read.
+  let activeStore = null;
+  const logger = modelLog ? modelLogger({ openStore: async () => { if (!activeStore) throw new Error('No storage opened.'); return activeStore; } }) : null;
+  const fetchImpl = logger ? logger.wrap(rawFetch) : rawFetch;
   const timeoutMs = modelTimeout(env);
   const groq = createGroqFailover({ env, fetchImpl, timeoutMs });
   return async function handler(request) {
     if (!['GET', 'POST'].includes(request.method)) return json({ error: 'Method not allowed.' }, 405, { allow: 'GET, POST' });
     const access = jarvisAccess(request, env);
     if (!access) return json({ error: 'Administrator key rejected.' }, 401);
+    if (!running) activeStore = null;
     if (request.method === 'GET') {
       const view = new URL(request.url).searchParams.get('view');
-      if (view === 'models') return json({ configured: Boolean(env.GROQ_API_KEY), ...groq.status() });
+      if (view === 'models') {
+        const log = await Promise.resolve().then(openStore).then(store => store.getWithMetadata(MODEL_LOG_KEY, { type: 'json' })).then(entry => entry?.data).catch(() => null);
+        return json({ configured: Boolean(env.GROQ_API_KEY), ...groq.status(), usage: withCosts(usageSummary(log), env) });
+      }
       if (view !== 'mail') return json({ error: 'Select a JARVIS view.' }, 400);
       if (!access.mailbox) return json({ error: 'Mailbox access is not available.' }, 403);
       try {
@@ -124,6 +136,7 @@ export function createJarvisHandler({ env = process.env, fetchImpl = fetch, read
     if (chat || role.startsWith('bot-') || role === 'main') {
       try {
         store = await openStore();
+        activeStore = store;
         memory = createMemory(store);
         [thread, learned, shared, bots] = await Promise.all([
           threadId ? memory.getThread(role, threadId) : null,
@@ -206,7 +219,7 @@ export function createJarvisHandler({ env = process.env, fetchImpl = fetch, read
     const key = env.GROQ_API_KEY;
     const geminiKey = env.GEMINI_API_KEY?.trim();
     const cfAccount = env.CLOUDFLARE_ACCOUNT_ID?.trim(), cfToken = env.CLOUDFLARE_AI_TOKEN?.trim();
-    if (!key && !(['gemini', 'email'].includes(role) && geminiKey) && !(role === 'cloudflare' && cfAccount && cfToken)) return json({ error: 'Set GROQ_API_KEY from a Groq Free project.' }, 503);
+    if (!key && !(['gemini', 'email'].includes(role) && geminiKey) && !(role === 'cloudflare' && cfAccount && cfToken) && !(role === 'research' && (geminiKey || (cfAccount && cfToken)))) return json({ error: 'Set GROQ_API_KEY from a Groq Free project.' }, 503);
     if (running) return json({ error: 'JARVIS is processing another task. Retry shortly.' }, 429);
     running = true;
     try {
@@ -229,12 +242,18 @@ export function createJarvisHandler({ env = process.env, fetchImpl = fetch, read
         mail: access.mailbox && (env.DATA_MODE === 'sample' || (() => { try { return mailSettings(env).configured; } catch { return false; } })())
           ? () => mailboxContext({ env, fetchImpl, store }) : null,
       };
+      // Research and knowledge agent, plus a short memory digest for every agent in chat mode.
+      let intelStore = store;
+      const intel = async () => createIntel({ env, fetchImpl, store: intelStore ??= (activeStore || await openStore()),
+        readLive: async live => compactForModel(await buildReport(paramsFrom(live || filters || { preset: '30d' }))) });
+      deps.research = async (text, previous) => (await intel()).run(previous && text.length < 200 ? text + ' (follow-up to: ' + previous.slice(0, 300) + ')' : text, { filters, by: 'jarvis' });
       const graph = compileAgents(model, () => latestNews(fetchImpl), () => readSystems(filters),
         engine === 'goose' ? createGooseModel(key) : model, deps);
       // Custom instructions apply to every call, stateless ones included. Storage errors leave them out.
       let custom = '';
-      try { custom = instructionsText((await (store || await openStore()).getWithMetadata(INSTRUCTIONS_KEY, { type: 'json' }))?.data); } catch { /* optional */ }
-      const sharedText = [custom, sharedFor(shared)].filter(Boolean).join('\n\n');
+      try { const opened = store || await openStore(); activeStore ||= opened; custom = instructionsText((await opened.getWithMetadata(INSTRUCTIONS_KEY, { type: 'json' }))?.data); } catch { /* optional */ }
+      const hint = memory && role !== 'research' ? await Promise.race([intel().then(i => i.memoryHint(prompt)), new Promise(resolve => setTimeout(() => resolve(''), 1500).unref?.())]).catch(() => '') : '';
+      const sharedText = [custom, sharedFor(shared), hint].filter(Boolean).join('\n\n');
       const budget = Math.min(20000, Math.max(1000, Number(env.JARVIS_HISTORY_CHARS) || limits.historyBudget));
       const history = memory ? historyFor(thread, budget) : [];
       const guidance = memory
@@ -249,6 +268,7 @@ export function createJarvisHandler({ env = process.env, fetchImpl = fetch, read
       return json({ error: error.agentStatus ? error.message : 'JARVIS could not complete the task. Check your provider settings and retry.' }, error.agentStatus || 502);
     } finally {
       running = false;
+      await logger?.flush(800);
     }
   };
 }

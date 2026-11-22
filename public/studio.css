@@ -123,3 +123,24 @@ nav.tabs { flex-wrap:wrap }
   .jarvis-topic-menu button { min-height: 44px; min-width: 44px; }
 }
 @media (prefers-reduced-motion: reduce) { .jarvis-topic-menu { animation-duration: 720ms; } }
+
+/* JARVIS Intel control room */
+.intel details { border-top: 1px solid var(--line, #e3e6ea); padding: 8px 0; }
+.intel summary { cursor: pointer; font-weight: 600; }
+.intel-body { display: grid; gap: 8px; padding-top: 8px; }
+.intel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.intel-tile { display: grid; gap: 4px; padding: 8px; border: 1px solid var(--line, #e3e6ea); border-radius: 8px; }
+.intel-tile small, .intel small { color: var(--muted, #667085); }
+.intel-badge { display: inline-block; padding: 1px 7px; margin-right: 4px; border-radius: 999px; font-size: 12px; background: #eef1f4; color: #344054; }
+.intel-badge.good { background: #e7f6ec; color: #1a7f37; }
+.intel-badge.warn { background: #fff4e5; color: #9a5b00; }
+.intel-badge.bad { background: #fdecec; color: #b42318; }
+.intel-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.intel-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.intel-table th, .intel-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line, #e3e6ea); }
+.intel-text { white-space: pre-wrap; }
+.intel-cites { padding-left: 20px; display: grid; gap: 4px; }
+.intel-pre { white-space: pre-wrap; max-height: 320px; overflow: auto; font-size: 12px; }
+.intel textarea, .intel input[type=text], .intel input[type=search] { flex: 1; min-width: 200px; }
+.intel-tile .intel-badge { justify-self: start; }
+.intel select { width: auto; flex: 0 0 auto; }

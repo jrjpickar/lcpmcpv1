@@ -1,5 +1,6 @@
 import { formatBrainHealth } from './jarvis-intent.mjs';
 import { agents, createJarvisPanel } from './jarvis.mjs';
+import { createIntelPanel } from './intel.mjs';
 import { initialConfig, metrics, pages, salesWidgets, trends, validateConfig } from './studio-schema.mjs';
 
 function element(tag, props = {}, ...children) {
@@ -130,6 +131,8 @@ export function mountStudio({ root, dashboardKey, view, report, filters, brainHe
   };
   const jarvis = createJarvisPanel(sharedAgentOptions);
   const brainJarvis = createJarvisPanel(sharedAgentOptions);
+  const intel = createIntelPanel({ key: () => adminKey });
+  let intelLoaded = false;
   const brainAgentBody = element('div', { hidden: true });
   const brainUnlockStatus = element('p', { className: 'studio-status' });
   brainUnlockStatus.setAttribute('role', 'status');
@@ -445,9 +448,11 @@ export function mountStudio({ root, dashboardKey, view, report, filters, brainHe
       element('div', { className: 'studio-grid' }, navigation, salesLayout),
       modules,
       jarvis,
+      intel,
     );
+    if (adminKey && saved && !intelLoaded) { intelLoaded = true; intel.refresh(); }
     if (busy) root.querySelectorAll('input,button,textarea,select').forEach(control => {
-      if (!jarvis.contains(control)) control.disabled = true;
+      if (!jarvis.contains(control) && !intel.contains(control)) control.disabled = true;
     });
   }
 

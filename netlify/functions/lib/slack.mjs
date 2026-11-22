@@ -46,11 +46,12 @@ export function toSlack(text) {
 
 const AGENT_PREFIX = { jarvis: 'main', main: 'main', email: 'email', mail: 'email', systems: 'systems', kpi: 'systems', kpis: 'systems',
   market: 'market', news: 'market', dev: 'build', build: 'build', data: 'data', sql: 'data', qc: 'qc',
-  gemini: 'gemini', cloudflare: 'cloudflare', workers: 'cloudflare', 'workers ai': 'cloudflare', llama: 'cloudflare' };
+  gemini: 'gemini', cloudflare: 'cloudflare', workers: 'cloudflare', 'workers ai': 'cloudflare', llama: 'cloudflare',
+  research: 'research', web: 'research', docs: 'research' };
 export const HELP = [
   '*JARVIS in Slack*',
   '• Just ask. JARVIS hands it to the right agent.',
-  '• Talk to one agent: `systems:`, `market:`, `email:`, `dev:`, `data:`, `qc:`, `gemini:`, `workers:` or a bot name, then your message.',
+  '• Talk to one agent: `systems:`, `market:`, `email:`, `dev:`, `data:`, `qc:`, `gemini:`, `workers:`, `research:` (web, docs and memory, with sources) or a bot name, then your message.',
   '• Teach: `remember: ...` (this agent) or `remember for all agents: ...` (company memory).',
   '• React :+1: or :-1: on a reply to rate it. JARVIS learns from it.',
   '• `run plan` runs the last Data sandbox plan on a throwaway copy. Nothing touches production.',
@@ -133,7 +134,7 @@ export function createSlackWorker({ env = process.env, fetchImpl = fetch, openSt
     if (data.plan && data.planHash) conv.plan = { plan: data.plan, planHash: data.planHash };
     await store.setJSON(convKey, conv);
     const via = (data.trace || []).filter(id => id !== parsed.role && id !== 'execute');
-    const names = { main: 'JARVIS', email: 'Email', systems: 'Systems', market: 'Market news', build: 'Build developer', data: 'Data sandbox', qc: 'QC', gemini: 'Gemini', cloudflare: 'Workers AI' };
+    const names = { main: 'JARVIS', email: 'Email', systems: 'Systems', market: 'Market news', build: 'Build developer', data: 'Data sandbox', qc: 'QC', gemini: 'Gemini', cloudflare: 'Workers AI', research: 'Research' };
     const footer = [via.length ? '_via ' + via.map(id => names[id] || bots.find(b => b.id === id)?.name || id).join(' > ') + '_' : '',
       data.plan && data.planHash ? '_Plan ready. QC ' + (data.approved ? 'approved' : 'did not approve') + ' it. Reply `run plan` to test it in the sandbox._' : ''].filter(Boolean).join('\n');
     const posted = await say((data.answer || 'No answer.') + (footer ? '\n\n' + footer : ''));

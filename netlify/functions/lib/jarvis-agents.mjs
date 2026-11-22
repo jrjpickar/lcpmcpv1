@@ -6,12 +6,12 @@ import { initialConfig, validateConfig } from '../../../public/studio-schema.mjs
 import { catalogText, validatePlan } from './jarvis-sandbox.mjs';
 import { checkDraft } from './gmail.mjs';
 
-export const builtinRoles = ['main', 'systems', 'market', 'build', 'qc', 'data', 'email', 'gemini', 'cloudflare'];
+export const builtinRoles = ['main', 'systems', 'market', 'build', 'qc', 'data', 'email', 'gemini', 'cloudflare', 'research'];
 export const roles = builtinRoles;
 export const agentNames = { main: 'Main dispatcher', systems: 'Systems and KPIs', market: 'Market news', build: 'Build developer', qc: 'QC developer',
-  data: 'Data sandbox', email: 'Email', gemini: 'Gemini', cloudflare: 'Workers AI' };
+  data: 'Data sandbox', email: 'Email', gemini: 'Gemini', cloudflare: 'Workers AI', research: 'Research and knowledge' };
 // Built-in agents plus custom bots (bot-<slug>) created in the Learning panel.
-export const rolePattern = /^(?:main|systems|market|build|qc|data|email|gemini|cloudflare|bot-[a-z0-9-]{2,24})$/;
+export const rolePattern = /^(?:main|systems|market|build|qc|data|email|gemini|cloudflare|research|bot-[a-z0-9-]{2,24})$/;
 const descriptions = {
   systems: 'LCP KPIs and system health: dials, connect rate, talk time, texts, opportunities, qualified sellers, reps, speed to lead, signals, accounting, source coverage.',
   market: 'Federal Reserve and Census housing news and what it means for acquisitions, financing and seller outreach.',
@@ -21,6 +21,7 @@ const descriptions = {
   email: 'Reads the LCP mailbox snapshot: unread mail, seller replies, title and escrow mail, deadlines and follow-ups.',
   gemini: 'Google Gemini: a second opinion, longer writing (seller texts, scripts, offers, emails) and general questions, with LCP metrics as context.',
   cloudflare: 'Cloudflare Workers AI (Llama): fast low cost drafts, rewrites, brainstorming and a third opinion.',
+  research: 'Research and knowledge: web search, documentation, GitHub, indexed internal documents (SOPs, repo files, PDFs, CSVs) and saved memory, with cited sources.',
 };
 
 // Deterministic first pass so most delegations cost no extra Groq call.
@@ -28,6 +29,7 @@ const intents = {
   email: /\b(?:e-?mails?|inbox|mailbox|unread|replies|reply to|sender|subject line|needs? a reply|awaiting (?:a )?reply)\b/i,
   gemini: /\b(?:gemini|second opinion)\b/i,
   cloudflare: /\b(?:cloudflare|workers ai|llama|third opinion)\b/i,
+  research: /\b(?:research|look up|search (?:the )?web|google it|documentation|docs for|github|npm|sops?|our (?:docs|notes|playbook|process)|what did we decide|remembered|https:\/\/\S+)\b/i,
   market: /\b(?:fed|federal reserve|interest rates?|mortgage rates?|census|housing (?:market|starts|news)|market news|inflation|economy)\b/i,
   data: /\b(?:sql|query|queries|views?|sandbox|execution plan)\b/i,
   qc: /\b(?:qc|quality check|review (?:this|the|my) (?:draft|modules?|plan|change))\b/i,
@@ -42,6 +44,8 @@ export function routeIntent(prompt, bots = []) {
     if (name.length >= 3 && prompt.toLowerCase().includes(name)) hits.push(bot.id);
   }
   if (hits.length === 1) return hits[0];
+  // Explicit research wording wins over topic words (for example "look up what we decided about speed to lead").
+  if (hits.includes('research') && /\b(?:research|look up|search (?:the )?web|what did we decide|our (?:docs|sops?|notes|playbook))\b/i.test(prompt)) return 'research';
   if (hits.length === 2 && hits.includes('systems')) return hits.find(id => ['build', 'data'].includes(id)) || null;
   return null;
 }
@@ -288,7 +292,7 @@ export function compileAgents(model, news = latestNews, inspectReport, buildMode
 
   async function main(state) {
     const { prompt, previousTask } = state;
-    const available = id => (id !== 'gemini' || deps.gemini) && (id !== 'cloudflare' || deps.cloudflare) && (id !== 'email' || deps.mail);
+    const available = id => (id !== 'gemini' || deps.gemini) && (id !== 'cloudflare' || deps.cloudflare) && (id !== 'email' || deps.mail) && (id !== 'research' || deps.research);
     const routed = routeIntent(prompt, bots(state));
     if (routed && available(routed)) return { target: routed, via: 'main' };
     const agents = Object.fromEntries([...Object.entries(descriptions).filter(([id]) => available(id)),
@@ -489,15 +493,27 @@ export function compileAgents(model, news = latestNews, inspectReport, buildMode
     return { result: { answer, trace: trace(state, id), agent: id } };
   }
 
+  // Research and knowledge: retrieval across live data, internal docs, memory and the web, answered with citations.
+  async function research(state) {
+    if (!deps.research) throw failure('Research is not available on this deployment.', 503);
+    const record = await deps.research(state.prompt, state.previousTask);
+    if (record.status !== 'done') throw failure(record.error || 'Research failed.', 502);
+    const label = { live: 'live LCP data', internal: 'internal documents', memory: 'saved memory', web: 'web research', model: 'model reasoning only' };
+    const footer = [record.assumptions?.length ? 'Assumptions: ' + record.assumptions.join('; ') : '',
+      'Sources: ' + record.provenance.types.map(t => label[t] || t).join(', ') + '. Verification: ' + record.verification.status + '.'].filter(Boolean).join('\n');
+    return { result: { answer: record.answer + '\n\n' + footer, trace: trace(state, 'research'), agent: 'research', citations: (record.sources.filter(source => record.answer.includes('[' + source.id + ']')).length ? record.sources.filter(source => record.answer.includes('[' + source.id + ']')) : record.sources).slice(0, 12),
+      provenance: record.provenance, verification: record.verification.status, taskId: record.id, ...(record.steps.some(s => s.status !== 'ok') ? { unavailable: record.steps.filter(s => s.status !== 'ok').map(s => s.name + ' (' + s.status + ')') } : {}) } };
+  }
+
   const nodeFor = id => (id.startsWith('bot-') ? 'custom' : id);
-  const nodes = ['main', 'systems', 'market', 'build', 'qc', 'data', 'email', 'gemini', 'cloudflare', 'custom'];
+  const nodes = ['main', 'systems', 'market', 'build', 'qc', 'data', 'email', 'gemini', 'cloudflare', 'research', 'custom'];
   return new StateGraph(state)
     .addNode('main', main).addNode('systems', systems).addNode('market', market).addNode('build', build).addNode('qc', qc)
-    .addNode('data', data).addNode('email', email).addNode('gemini', gemini).addNode('cloudflare', cloudflare).addNode('custom', custom)
+    .addNode('data', data).addNode('email', email).addNode('gemini', gemini).addNode('cloudflare', cloudflare).addNode('research', research).addNode('custom', custom)
     .addConditionalEdges(START, input => nodeFor(input.role), nodes)
     .addConditionalEdges('main', input => (input.result ? END : nodeFor(input.target)), [...nodes.filter(id => id !== 'main'), END])
     .addConditionalEdges('build', input => (input.proposal ? 'qc' : END), ['qc', END])
     .addConditionalEdges('data', input => (input.planProposal ? 'qc' : END), ['qc', END])
     .addEdge('systems', END).addEdge('market', END).addEdge('qc', END).addEdge('email', END)
-    .addEdge('gemini', END).addEdge('cloudflare', END).addEdge('custom', END).compile();
+    .addEdge('gemini', END).addEdge('cloudflare', END).addEdge('research', END).addEdge('custom', END).compile();
 }

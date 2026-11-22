@@ -1,5 +1,5 @@
 # LCP MCP on a 1 GB VM. Ported from the A2Z compose file. The port binds to 127.0.0.1 only. Nothing is published to the internet.
-# The image is built on your computer (deploy/build-image.sh) and loaded on the VM, so compose never builds or pulls here.
+# The lcp-mcp image is built on your computer (deploy/build-image.sh) and loaded on the VM. Compose only pulls searxng/searxng.
 # Port 8081 so it can sit next to A2Z (8080) on the same e2-micro.
 services:
   lcp-mcp:
@@ -14,6 +14,8 @@ services:
       NODE_OPTIONS: --max-old-space-size=288 --dns-result-order=ipv6first
     ports:
       - "127.0.0.1:8081:8080"
+    depends_on:
+      - searxng
     volumes:
       - lcp-data:/data
     # 384 MB fits next to A2Z (512 MB) on 1 GB with the 2 GB swap the A2Z bootstrap adds.
@@ -31,6 +33,36 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # Self-hosted web search for JARVIS research. No published port: only lcp-mcp reaches it at http://searxng:8080.
+  # Set SEARXNG_URL=http://searxng:8080 and SEARXNG_SECRET (openssl rand -hex 32) in .env. Config: ./searxng/settings.yml.
+  searxng:
+    image: searxng/searxng:latest
+    container_name: lcp-searxng
+    restart: unless-stopped
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?Set SEARXNG_SECRET in .env}
+      SEARXNG_BASE_URL: http://searxng:8080/
+      UWSGI_WORKERS: "1"
+      UWSGI_THREADS: "2"
+      GRANIAN_WORKERS: "1"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    mem_limit: 256m
+    memswap_limit: 512m
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
 
 networks:
   default:

@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 if [ "${1:-}" = "--save-only" ]; then
   docker buildx build --platform linux/amd64 -t lcp-mcp:latest --load .
   docker save lcp-mcp:latest | gzip > lcp-mcp-image.tar.gz
-  echo "Wrote lcp-mcp-image.tar.gz ($(du -h lcp-mcp-image.tar.gz | cut -f1)). Upload it and docker-compose.yml to ~/lcp-jarvis, then: gunzip -c lcp-mcp-image.tar.gz | sudo docker load"
+  echo "Wrote lcp-mcp-image.tar.gz ($(du -h lcp-mcp-image.tar.gz | cut -f1)). Upload it, docker-compose.yml and deploy/searxng/settings.yml (to ~/lcp-jarvis/searxng/) to ~/lcp-jarvis, then: gunzip -c lcp-mcp-image.tar.gz | sudo docker load"
   exit 0
 fi
 INSTANCE="${1:-a2z-mcp}"; ZONE="${2:-us-west1-b}"; DIR="${3:-lcp-jarvis}"
@@ -21,7 +21,7 @@ SSH=(gcloud compute ssh "ubuntu@$INSTANCE" --zone "$ZONE" --tunnel-through-iap -
 
 docker buildx build --platform linux/amd64 -t lcp-mcp:latest --load .
 "${SSH[@]}" --command "mkdir -p '$DIR'"
-tar czf - docker-compose.yml | "${SSH[@]}" --command "tar xzf - -C '$DIR'"
+tar czf - docker-compose.yml -C deploy searxng | "${SSH[@]}" --command "tar xzf - -C '$DIR'"
 echo "Copying the image (about 80 MB compressed)..."
 docker save lcp-mcp:latest | gzip | "${SSH[@]}" --command "gunzip | sudo docker load"
 "${SSH[@]}" --command "cd '$DIR' && test -f .env || { echo 'Missing ~/$DIR/.env. Copy it first (deploy/VM-SETUP.md step 2).'; exit 1; }

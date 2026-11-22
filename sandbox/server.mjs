@@ -17,6 +17,7 @@ const routes = {
   '/api/jarvis-memory': createJarvisMemoryHandler({ openStore: async () => jarvisStore }),
   '/api/jarvis-instructions': createInstructionsHandler({ openStore: async () => jarvisStore }),
   '/api/jarvis-execute': createExecuteHandler({ openStore: async () => jarvisStore }),
+  '/api/intel': (await import('../netlify/functions/intel.mjs')).createIntelHandler({ openStore: async () => jarvisStore }),
   '/api/jarvis-email-draft': (await import('../netlify/functions/jarvis-email-draft.mjs')).default,
   '/api/voice': (await import('../netlify/functions/voice.mjs')).default,
   '/api/voice-turn': (await import('../netlify/functions/voice-turn.mjs')).default,
@@ -30,7 +31,7 @@ const routes = {
   '/api/alerts': (await import('../netlify/functions/alerts.mjs')).default,
 };
 const files = { '/': ['index.html', 'text/html; charset=utf-8'], '/lcp-metrics.js': ['lcp-metrics.js', 'application/javascript'], '/sample-data.js': ['sample-data.js', 'application/javascript'], '/brain3d.js': ['brain3d.js', 'application/javascript'] };
-for (const name of ['studio.mjs', 'jarvis.mjs', 'jarvis-topics.mjs', 'animation-frame.mjs', 'topic-rules.mjs', 'jarvis-intent.mjs', 'jarvis-instructions.mjs', 'studio-schema.mjs', 'studio.css', 'voice.js', 'voice-vad.js', 'voice-launch.js', 'voice.css', 'voice.html']) {
+for (const name of ['studio.mjs', 'jarvis.mjs', 'intel.mjs', 'jarvis-topics.mjs', 'animation-frame.mjs', 'topic-rules.mjs', 'jarvis-intent.mjs', 'jarvis-instructions.mjs', 'studio-schema.mjs', 'studio.css', 'voice.js', 'voice-vad.js', 'voice-launch.js', 'voice.css', 'voice.html']) {
   files['/' + name] = [name, name.endsWith('.css') ? 'text/css' : name.endsWith('.html') ? 'text/html; charset=utf-8' : 'application/javascript'];
 }
 const port = Number(process.env.PORT || 4173);
