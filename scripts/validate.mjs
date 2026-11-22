@@ -4,7 +4,7 @@ const require = createRequire(import.meta.url);
 process.env.DATA_MODE = 'sample';
 const M = require('../public/lcp-metrics.js');
 const S = require('../public/sample-data.js');
-for (const f of ['activity', 'brain-status', 'metrics', 'ask', 'mcp', 'workflows', 'studio', 'jarvis', 'jarvis-memory', 'jarvis-instructions', 'jarvis-execute', 'jarvis-email-draft', 'jarvis-mail-sync', 'voice', 'voice-turn', 'slack-voice', 'slack-events', 'slack-worker-background', 'slack-briefing', 'intel', 'intel-worker-background']) await import(`../netlify/functions/${f}.mjs`);
+for (const f of ['activity', 'brain-status', 'metrics', 'ask', 'mcp', 'workflows', 'studio', 'jarvis', 'jarvis-memory', 'jarvis-instructions', 'jarvis-execute', 'jarvis-email-draft', 'jarvis-mail-sync', 'voice', 'voice-turn', 'slack-voice', 'slack-events', 'slack-worker-background', 'slack-briefing', 'intel', 'intel-worker-background', 'leads']) await import(`../netlify/functions/${f}.mjs`);
 const r = M.compute(S.generate({ days: 40 }), { preset: '30d' });
 for (const k of ['callsByUser', 'opportunities', 'smsToQualified', 'dialsToQualified']) if (!r[k]) throw new Error(`missing ${k}`);
 if (!(r.kpis.dials > 0)) throw new Error('engine produced no dials');

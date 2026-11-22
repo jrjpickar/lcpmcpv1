@@ -270,7 +270,7 @@ if (key) ssSet('lcpKey', key);
 var state = { sig: '', view: 'sales', preset: '30d', from: '', to: '', rep: '', locBy: 'city', sort: { k: 'dials', dir: -1 } };
 var studio = null, studioLoad = null;
 var sampleData = null, last = null, wf = null, brainReady = false, brainLoading = false, brainReport = null, brainActivity = null, renderedActivity = null;
-var brainStatus = null, renderedStatus = null, renderedWorkflow = null, brainWorkflow = null, twilioReps = null;
+var brainStatus = null, renderedStatus = null, renderedWorkflow = null, brainWorkflow = null, twilioReps = null, brainLeads = null, renderedLeads = null;
 var reads = new Map(), reportGeneration = 0, workflowGeneration = 0, activityGeneration = 0, filterTimer;
 var SLOTS = ['--s1','--s2','--s3','--s4','--s5','--s6','--s7','--s8'], repColor = {};
 var OUT_COLOR = { noanswer: 'var(--s1)', notinterested: 'var(--s2)', followup: 'var(--s3)', bad: 'var(--s4)', other: 'var(--s7)' };
@@ -372,7 +372,7 @@ function render(r){
   if (state.view === 'sales') { renderKpis(r); renderInsights(r); renderSignals(r); renderCalls(r); renderOpps(r); renderPath(r, 'sms'); renderPath(r, 'dial'); }
   if (state.view === 'accounting') renderAccounting(r);
   if (state.view === 'workflows') loadWorkflows();
-  if (state.view === 'brain') { showBrain(); refreshBrainWorkflowStatus(); if (STATIC) showSampleActivity(r); }
+  if (state.view === 'brain') { showBrain(); refreshBrainWorkflowStatus(); refreshBrainLeads(); if (STATIC) showSampleActivity(r); }
   if (studio) studio.refreshModules();
   $('footMeta').textContent = r.range.from + ' to ' + r.range.to + ' · ' + r.range.timezone + (r.previous ? ' · changes vs ' + r.previous.range.from + ' to ' + r.previous.range.to : '');
 }
@@ -827,6 +827,26 @@ function refreshBrainStatus(fresh){
   });
 }
 
+// Leads for Brain: opportunities created in the selected range, by pipeline and by city (contact ZIP tag). Own light read,
+// so a slow sales report (SMS export, lookback) cannot leave Leads empty.
+function leadsUrl(){ return '/api/leads?from=' + encodeURIComponent($('from').value) + '&to=' + encodeURIComponent($('to').value) + (state.rep ? '&rep=' + encodeURIComponent(state.rep) : ''); }
+function refreshBrainLeads(){
+  if (STATIC || !$('from').value || !$('to').value) return;
+  var url = leadsUrl();
+  if (brainLeads && brainLeads.key === url && !brainLeads.error) return;
+  brainLeads = {key:url, loading:true};
+  cachedApi(url).then(function(result){
+    if (leadsUrl() !== url) return;
+    brainLeads = Object.assign({key:url}, result, result.configured === false ? {error:(result.warnings || [])[0] || 'GHL not configured'} : {});
+    showBrain();
+  }).catch(function(e){
+    if (leadsUrl() !== url) return;
+    reads.delete(url);
+    brainLeads = {key:url, error:'Leads read failed' + (e && e.message ? ': ' + e.message : '')};
+    showBrain();
+  });
+}
+
 function refreshBrainWorkflowStatus(){
   if (STATIC || !last?.sources?.workflows) return;
   cachedApi('/api/workflows?days=7').then(function(result){
@@ -869,7 +889,8 @@ function brainModel(r){
     groq: !!sources.groq, groqStatus: brainStatus?.groq?.detail, insights: currentRange ? r.insights || [] : [],
     calls: { dials: totals.calls, conversations: totals.conversations, rate: totals.calls > 0 && totals.conversations != null ? totals.conversations / totals.calls : null },
     sms: { sent: totals.sms, delivered: totals.smsDelivered },
-    leads: leadsOk ? { total: o.total, value: o.value, medianTouches: o.medianTouches, cities: o.byCity.filter(function(c){return c.key !== 'Unknown';}) } : {},
+    leads: STATIC ? (leadsOk ? { total: o.total, pipelines: [], cities: (o.byCity || []).filter(function(c){return c.key !== 'Unknown';}).map(function(c){ return {city:c.key, count:c.count, byPipeline:{}}; }) } : {})
+      : (brainLeads && brainLeads.key === leadsUrl() && !brainLeads.loading ? brainLeads : {}),
     automations: { workflows: wo.totalWorkflows, entered: wo.enrollments, completion: wo.completionRate, skipped: wo.skipped, failed: wo.failed },
     revenue: ledgerOk ? { fees: a.revenue, net: a.net, pending: a.feesPending, deals: a.dealsPaid, emd: a.emdAtRisk } : {},
     health: ops.health || { sources: health }, twilio: ops.twilio || brainStatus?.billing || {}
@@ -877,7 +898,7 @@ function brainModel(r){
 }
 function showBrain(){
   if (studio && state.view === 'brain') studio.refreshModules();
-  if (state.view !== 'brain' || (brainReady && brainReport === last && renderedActivity === brainActivity && renderedStatus === brainStatus && renderedWorkflow === brainWorkflow)) return;
+  if (state.view !== 'brain' || (brainReady && brainReport === last && renderedActivity === brainActivity && renderedStatus === brainStatus && renderedWorkflow === brainWorkflow && renderedLeads === brainLeads)) return;
   $('brainMeta').textContent = '';
   if (window.LcpBrain) {
     try {
@@ -887,12 +908,12 @@ function showBrain(){
     } catch (e) {
       $('brainMeta').textContent = '3D view unavailable on this device.';
     }
-    brainReport = last; renderedActivity = brainActivity; renderedStatus = brainStatus; renderedWorkflow = brainWorkflow;
+    brainReport = last; renderedActivity = brainActivity; renderedStatus = brainStatus; renderedWorkflow = brainWorkflow; renderedLeads = brainLeads;
     return;
   }
   if (brainLoading) return;
   brainLoading = true;
-  var s = document.createElement('script'); s.src = 'brain3d.js?v=twilio-billing';
+  var s = document.createElement('script'); s.src = 'brain3d.js?v=leads-zip';
   s.onload = function(){ brainLoading = false; showBrain(); };
   s.onerror = function(){ brainLoading = false; $('brainMeta').textContent = 'Could not load the 3D view.'; };
   document.head.appendChild(s);
@@ -905,7 +926,7 @@ function setView(v){
   ['brain', 'sales', 'workflows', 'accounting', 'studio'].forEach(function(x){ $('v-' + x).className = 'view' + (x === v ? ' on' : ''); });
   $('rep').disabled = v !== 'sales' && v !== 'brain';
   if (v === 'workflows') loadWorkflows();
-  if (v === 'brain') { if (!STATIC) loadStudio().catch(function(){}); refreshBrainStatus(); refreshBrainWorkflowStatus(); loadBrainActivity(); showBrain(); }
+  if (v === 'brain') { if (!STATIC) loadStudio().catch(function(){}); refreshBrainStatus(); refreshBrainWorkflowStatus(); refreshBrainLeads(); loadBrainActivity(); showBrain(); }
   if (v === 'studio') openStudio();
   if (studio) studio.refreshModules();
   if (last) { if (v === 'accounting') renderAccounting(last); if (v === 'sales') render(last); }

@@ -220,20 +220,49 @@ function sms(city, m) {
   label('sms', new THREE.Vector3(x + 1.7, mh + 1.2, z), 'SMS', s.sent == null ? 'Unavailable' : num(s.sent) + ' sent · ' + num(s.delivered) + ' delivered');
 }
 
+// Leads neighborhood: one lot per city (from the contact ZIP tag), one house per opportunity created in the range.
+// When a city has more than 12 opportunities every house stands for the same number of opportunities (one scale for all lots).
+// Roof color = pipeline, so ACQ, Retail and Dispo read at a glance. Opportunity value is not used.
+export const PIPE_COLORS = [C.violet, C.orange, C.aqua, C.yellow, C.magenta, C.blue, C.red, C.green];
+export function pipelineColor(m, name) {
+  const names = (m.leads?.pipelines || []).map(p => p.name);
+  const i = names.indexOf(name);
+  return PIPE_COLORS[(i < 0 ? names.length : i) % PIPE_COLORS.length];
+}
+export function leadLayout(l) {
+  const cities = (l.cities || []).filter(c => c.city !== 'No ZIP tag').slice(0, 6);
+  const max = Math.max(1, ...cities.map(c => c.count));
+  const unit = Math.max(1, Math.ceil(max / 12));
+  return { cities, unit, lots: cities.map(c => {
+    const n = Math.max(1, Math.round(c.count / unit));
+    // House colors follow the city's pipeline mix, largest pipeline first.
+    const mix = Object.entries(c.byPipeline || {}).sort((a, b) => b[1] - a[1]);
+    const houses = [];
+    for (const [pipe, count] of mix) for (let k = 0; k < Math.max(1, Math.round(count / unit)) && houses.length < n; k++) houses.push(pipe);
+    while (houses.length < n) houses.push(mix[0]?.[0] || '');
+    return { city: c.city, count: c.count, houses };
+  }) };
+}
+
 function leads(city, m) {
   const [x, z] = SPOTS.leads, g = structure(city, 'leads', x, z), l = m.leads || {};
   pad(g, 8.2, 6.2, 0x1f3b2e);
-  const cities = (l.cities || []).slice(0, 8), max = Math.max(1, ...cities.map(c => c.count));
-  const roofCols = [C.violet, C.orange, C.aqua, C.yellow, C.magenta, C.blue, C.red, C.green];
-  cities.forEach((c, i) => {
-    const hx = (i % 4) * 1.95 - 2.9, hz = Math.floor(i / 4) * 2.7 - 1.3, hh = 0.7 + 2.3 * (c.count / max);
-    const house = new THREE.Group(); house.position.set(hx, 0.12, hz);
-    house.add(at(box(1.3, hh, 1.3, mat(i % 2 ? C.wall : C.wall2)), 0, hh / 2, 0));
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(1.08, 0.8, 4), mat(roofCols[i % roofCols.length], { flatShading: true })); roof.rotation.y = Math.PI / 4; roof.position.y = hh + 0.4; roof.castShadow = true; house.add(roof);
-    house.add(at(box(0.32, 0.5, 0.04, mat(0x5a4636)), 0, 0.25, 0.66));
-    g.add(house);
+  const { lots, unit } = leadLayout(l);
+  lots.forEach((lot, i) => {
+    const lx = (i % 3) * 2.65 - 2.65, lz = Math.floor(i / 3) * 2.9 - 1.45;
+    const yard = box(2.4, 0.06, 2.6, mat(0x27503b, { roughness: 1 })); yard.position.set(lx, 0.15, lz); yard.castShadow = false; g.add(yard);
+    lot.houses.forEach((pipe, k) => {
+      const hx = lx - 0.84 + (k % 4) * 0.56, hz = lz - 0.9 + Math.floor(k / 4) * 0.9;
+      const house = new THREE.Group(); house.position.set(hx, 0.18, hz);
+      house.add(at(box(0.42, 0.36, 0.42, mat(k % 2 ? C.wall : C.wall2)), 0, 0.18, 0));
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.28, 4), mat(pipelineColor(m, pipe), { flatShading: true }));
+      roof.rotation.y = Math.PI / 4; roof.position.y = 0.5; roof.castShadow = true; house.add(roof);
+      g.add(house);
+    });
   });
-  label('leads', new THREE.Vector3(x, 5.4, z), 'Leads', l.total == null ? 'Unavailable' : num(l.total) + ' opps' + (cities[0] ? ' · top ' + cities[0].key : ''));
+  const top = lots[0];
+  label('leads', new THREE.Vector3(x, 5.4, z), 'Leads', l.total == null ? (l.error ? 'Unavailable' : 'Loading') :
+    num(l.total) + ' opps' + (top ? ' · top ' + top.city + ' (' + num(top.count) + ')' : '') + (unit > 1 ? ' · 1 house = ' + unit : ''));
 }
 
 function gear(r, teeth, m) {
@@ -341,7 +370,7 @@ function twilio(city, m) {
 
 // Data flowing from every structure into the Brain. More activity = more packets.
 function flows(city, m) {
-  const vol = { calls: m.calls?.dials, sms: m.sms?.sent, leads: m.leads?.total * 20, automations: m.automations?.entered * 3, revenue: m.revenue?.deals * 200, health: 400, twilio: m.twilio?.balance };
+  const vol = { calls: m.calls?.dials, sms: m.sms?.sent, leads: (m.leads?.total || 0) * 20, automations: m.automations?.entered * 3, revenue: m.revenue?.deals * 200, health: 400, twilio: m.twilio?.balance };
   const geo = new THREE.SphereGeometry(0.13, 10, 10);
   Object.entries(SPOTS).forEach(([k, [x, z]]) => {
     if (!vol[k]) return;
@@ -410,7 +439,17 @@ function describe(key, m) {
     case 'brain': return { kicker: 'The core', title: 'LCP Brain', rows: [['Insights', num((m.insights || []).length)], ['Groq', esc(m.groqStatus || (m.groq ? 'Configured' : 'Rule-based'))]], list: (m.insights || []).slice(0, 4), view: 'sales', viewLabel: 'Sales' };
     case 'calls': return { kicker: 'Dialer tower', title: 'Calls', rows: [['Outbound calls', num(c.dials)], ['Calls over 60 seconds', num(c.conversations)], ['Share over 60 seconds', pct(c.rate)]], view: 'sales', viewLabel: 'Sales' };
     case 'sms': return { kicker: 'Post office', title: 'SMS', rows: [['Outbound SMS sent', num(s.sent)], ['Delivered', num(s.delivered)]], view: 'sales', viewLabel: 'Sales' };
-    case 'leads': return { kicker: 'Neighborhood', title: 'Leads', rows: [['Opportunities', num(l.total)], ['Pipeline value', money(l.value)], ['Median touches', l.medianTouches ?? '-'], ['Top city', esc((l.cities || [])[0]?.key || '-')]], list: (l.cities || []).slice(0, 5).map(c => c.key + ': ' + num(c.count) + ' opps'), note: 'One house per city. Height follows opportunities created there.', view: 'sales', viewLabel: 'Sales' };
+    case 'leads': {
+      const { unit } = leadLayout(l);
+      const dot = name => `<i class="b3-dot" style="background:#${pipelineColor(m, name).toString(16).padStart(6, '0')}"></i>`;
+      const rows = [['Opportunities created', num(l.total)], ...(l.pipelines || []).map(p => [dot(p.name) + esc(p.name), num(p.count)])];
+      if (l.noZip) rows.push(['No ZIP tag', num(l.noZip)]);
+      if (l.error) rows.push(['Status', esc(l.error)]);
+      const list = (l.cities || []).filter(c => c.city !== 'No ZIP tag').slice(0, 8).map(c => esc(c.city) + ': ' + num(c.count) + ' opps (' +
+        Object.entries(c.byPipeline || {}).sort((a, b) => b[1] - a[1]).map(([p, n]) => esc(p.replace(/\s*pipeline$/i, '')) + ' ' + num(n)).join(', ') + ')' + (c.zips?.length ? ' · ZIP ' + c.zips.slice(0, 4).join(', ') + (c.zips.length > 4 ? '...' : '') : ''));
+      return { kicker: 'Neighborhood', title: 'Leads', rows, list,
+        note: 'One lot per city from the contact ZIP tag. One house per opportunity created in the selected range' + (unit > 1 ? ' (each house = ' + unit + ' opportunities)' : '') + '. Roof color is the pipeline.' + ((l.warnings || []).length ? ' ' + esc(l.warnings[0]) : ''), view: 'sales', viewLabel: 'Sales' };
+    }
     case 'automations': return { kicker: 'Factory', title: 'Automations', rows: [['Workflows', num(a.workflows)], ['Contacts enrolled', num(a.entered)], ['Finished', pct(a.completion)], ['Skipped / failed', num(a.skipped) + ' / ' + num(a.failed)]], note: 'Gears and smoke speed follow enrollments. The beacon blinks red when a step failed.', view: 'workflows', viewLabel: 'Workflows' };
     case 'revenue': return { kicker: 'Bank', title: 'Revenue', rows: [['Fees received', money(r.fees)], ['Net', money(r.net)], ['Fees pending', money(r.pending)], ['Deals paid', num(r.deals)], ['EMD at risk', money(r.emd)]], note: 'Coin stacks: received, pending (glass), net.', view: 'accounting', viewLabel: 'Accounting' };
     case 'health': return { kicker: 'Control room', title: 'System health', rows: (h.sources || []).map(x => [esc(x.name), `<i class="b3-dot" style="background:#${(STATUS[x.status] || STATUS.off).toString(16).padStart(6, '0')}"></i>${esc(x.detail)}`]), note: 'Status reflects the latest data available to Brain.' };

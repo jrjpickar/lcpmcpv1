@@ -103,6 +103,8 @@ Publish `public` and use `netlify/functions` for functions. The repository's Net
 | `LEDGER_EXPORT_KEY` | Optional | Same value as `MCP_EXPORT_KEY` on the Ledger (24+ characters). The supplied Ledger already includes `netlify/functions/mcp-export.mts` |
 | `DATA_DASHBOARD_URL` | Optional | Data Dashboard origin for the Workflows tab. |
 | `DATA_DASHBOARD_KEY` | Optional | The Data Dashboard's `DASHBOARD_EMBED_KEY` for the Workflows tab. |
+| `ZIP_CITY_MAP` | Optional | Brain Leads: JSON of ZIP to city name, for example `{"90221":"Compton"}`. Wins over the public ZIP lookup (api.zippopotam.us). |
+| `LEADS_BUDGET_MS`, `LEADS_MAX_CONTACT_LOOKUPS` | Optional | Brain Leads read budget (8000 ms) and how many contacts without a ZIP tag are read for their tags or postal code (150). |
 | `ALERT_WEBHOOK_URL` | For alerts | Slack Incoming Webhook URL. Without it the alert check stays dormant |
 | `DASHBOARD_URL` | Optional | Link added to each Slack alert |
 | `ALERT_REPLY_WAIT_MIN`, `ALERT_CALLER_ID_DROP`, `ALERT_OPT_OUT_SPIKE`, `ALERT_OVERDUE_MIN`, `ALERT_COOLDOWN_MIN` | Optional | Alert thresholds (15, 0.4, 2, 3, 120) |
