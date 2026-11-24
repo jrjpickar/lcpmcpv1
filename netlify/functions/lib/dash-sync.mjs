@@ -210,7 +210,29 @@ export async function runDashSync({ store = dashStore(), env = process.env, fetc
   run.done = true;
   run.finishedAt = new Date().toISOString();
   await save();
-  return { done: true, runId: run.id, full: run.full, warnings: run.warnings, ms: Date.now() - started };
+  const published = await publishToSite({ store, env, fetchImpl, state });
+  if (published.error) warn(published.error);
+  return { done: true, runId: run.id, full: run.full, warnings: run.warnings, ms: Date.now() - started, published: published.ok || false };
+}
+
+// VM only (RUN_SCHEDULES_ON=vm): the sync runs here, but Brain and Marketing on Netlify read Netlify Blobs.
+// After each finished run, POST the small derived snapshot to the site's /api/dash-publish with DASH_SYNC_SECRET.
+// Set LCP_SITE_URL (https://your-site.netlify.app) and the same DASH_SYNC_SECRET in the VM .env. On Netlify this does nothing.
+export async function publishToSite({ store, env = process.env, fetchImpl = fetch, state }) {
+  if (env.NETLIFY || !env.LCP_SITE_URL) return { skipped: true };
+  if (String(env.DASH_SYNC_SECRET || '').length < 16) return { error: 'LCP_SITE_URL is set but DASH_SYNC_SECRET is missing on the VM: the Netlify site will not get these numbers.' };
+  let url;
+  try { url = new URL('/api/dash-publish', env.LCP_SITE_URL); if (url.protocol !== 'https:') throw new Error(); } catch { return { error: 'LCP_SITE_URL must be the https address of the LCP site.' }; }
+  const derived = await store.get('dash/derived', { type: 'json' });
+  if (!derived) return { error: 'Nothing to publish: no derived snapshot.' };
+  try {
+    const res = await fetchImpl(url, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(20000),
+      headers: { 'content-type': 'application/json', 'x-sync-secret': env.DASH_SYNC_SECRET }, body: JSON.stringify({ derived, state }) });
+    if (!res.ok) return { error: `Publishing to the Netlify site failed (HTTP ${res.status}). Check LCP_SITE_URL and that DASH_SYNC_SECRET matches Netlify.` };
+    return { ok: true };
+  } catch (error) {
+    return { error: `Publishing to the Netlify site failed (${error.message}).` };
+  }
 }
 
 // Full pass: every contact, staged in chunks so a long pass can continue in the next invocation.

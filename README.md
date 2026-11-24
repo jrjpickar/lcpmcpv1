@@ -141,7 +141,7 @@ Publish `public` and use `netlify/functions` for functions. The repository's Net
 | `DASH_SYNC_DAYS` | Optional. Days of calls, SMS and appointments kept. Default 120 |
 | `MARKET_NEWS_TOPICS` | Optional. JSON list of topics (or `topic|topic`). `MARKET_NEWS=off` disables headlines |
 
-VM (`RUN_SCHEDULES_ON=vm`): the server runs the same sync (job `dash-sync`) and stores it under `DATA_DIR/dash`.
+VM (`RUN_SCHEDULES_ON=vm`): the server runs the same sync (job `dash-sync`), stores it under `DATA_DIR/dash`, and after each finished run posts the small snapshot to the site's `/api/dash-publish` so Brain, Marketing and Netlify MCP show it. Add to the VM `.env`: `LCP_SITE_URL=https://<your LCP site>` and the same `DASH_SYNC_SECRET` as Netlify, plus the source variables above if the VM does not have them yet (`TWILIO_*`, `DIALER_*`, `DATA_DASHBOARD_*`). The manual curl start still works in this mode: it runs one sync on Netlify and saves it straight to the site, until the VM takes over at its next :07 or :37 slot.
 
 ## Marketing tab
 Where to iterate marketing to get more opportunities, for the last 30 or 90 days:

@@ -144,3 +144,29 @@ test('marketing recommendations are evidence based and respect sample floors', (
   assert.equal(m.timing.hours.length, 24);
   assert.ok(Object.keys(d.windows).includes('wtd'));
 });
+
+test('VM publishes each finished sync to the Netlify site; the site accepts only the shared secret', async () => {
+  const { createPublishHandler } = await import('../netlify/functions/dash-publish.mjs');
+  const site = memoryStore();
+  const secret = 's'.repeat(32);
+  const handler = createPublishHandler({ env: { DASH_SYNC_SECRET: secret }, store: () => site });
+  const { fetchImpl } = fakeSources();
+  const posts = [];
+  const both = async (input, init = {}) => {
+    const url = String(input);
+    if (url.startsWith('https://lcp.example/')) { posts.push(url); return handler(new Request(url, init)); }
+    return fetchImpl(input, init);
+  };
+  const vmStore = memoryStore();
+  const result = await runDashSync({ store: vmStore, env: { ...ENV, LCP_SITE_URL: 'https://lcp.example', DASH_SYNC_SECRET: secret }, fetchImpl: both, now: NOW });
+  assert.equal(result.published, true, JSON.stringify(result.warnings));
+  assert.deepEqual(posts, ['https://lcp.example/api/dash-publish']);
+  assert.equal((await site.get('dash/derived')).windows['30d'].totals.dials, 2);
+  assert.equal((await site.get('dash/state')).run.publishedFrom, 'vm');
+  const bad = await handler(new Request('https://lcp.example/api/dash-publish', { method: 'POST', headers: { 'x-sync-secret': 'wrong-secret-value-123' }, body: '{}' }));
+  assert.equal(bad.status, 401);
+  // On Netlify itself nothing is posted.
+  const netlifyRun = await runDashSync({ store: memoryStore(), env: { ...ENV, NETLIFY: 'true', LCP_SITE_URL: 'https://lcp.example', DASH_SYNC_SECRET: secret }, fetchImpl: both, now: NOW });
+  assert.equal(netlifyRun.published, false);
+  assert.equal(posts.length, 1);
+});
