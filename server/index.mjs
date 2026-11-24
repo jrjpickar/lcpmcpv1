@@ -58,6 +58,8 @@ const { mailSettings, syncMailbox } = await import('../netlify/functions/lib/jar
 const { postBriefing } = await import('../netlify/functions/lib/slack.mjs');
 const { createJarvisHandler } = await import('../netlify/functions/jarvis.mjs');
 const mcp = (await import('../netlify/functions/mcp.mjs')).default;
+const { runDashSync } = await import('../netlify/functions/lib/dash-sync.mjs');
+const { setDashStore } = await import('../netlify/functions/lib/dash-data.mjs');
 
 // JARVIS storage: Supabase when set (shared with Netlify), else the container volume.
 const supabase = Boolean(env.SUPABASE_URL?.trim() && env.SUPABASE_SERVICE_ROLE_KEY?.trim());
@@ -86,6 +88,15 @@ const alertStore = {
   async setJSON(key, value) { await alertFiles.setJSON(key, value, {}); },
 };
 
+// Dashboard data sync state and datasets on the volume (Netlify uses the Blobs store "lcp-dash").
+const dashFiles = localKeyedStore(join(dataDir, 'dash'));
+const dashStore = {
+  async get(key) { return (await dashFiles.getWithMetadata(key))?.data ?? null; },
+  async setJSON(key, value) { await dashFiles.setJSON(key, value, {}); },
+  async delete(key) { await dashFiles.delete(key); },
+};
+setDashStore(dashStore);
+
 const jobs = {
   'alerts-scheduled': async () => runAlertCheck({ store: alertStore, force: dryRun }),
   'jarvis-mail-sync': async () => {
@@ -94,6 +105,13 @@ const jobs = {
     return { messages: snapshot.messages.length };
   },
   'slack-briefing': async () => postBriefing({ env, jarvis: createJarvisHandler({ env, openStore }) }),
+  // No invocation limit here: keep going until the run (including a nightly full contact pass) is done.
+  'dash-sync': async () => {
+    if (dryRun) return { skipped: 'dry run' };
+    let result;
+    for (let hop = 0; hop < 10; hop++) { result = await runDashSync({ env, store: dashStore, budgetMs: 25 * 60000 }); if (!result.more) break; }
+    return { done: Boolean(result?.done), full: result?.full, warnings: result?.warnings?.length || 0, skipped: result?.skipped };
+  },
 };
 const intelWorker = createIntelWorker({ env, openStore });
 const devRunner = env.DEV_RUNNER === '1' ? createDevRunner({ env, openStore }) : null;

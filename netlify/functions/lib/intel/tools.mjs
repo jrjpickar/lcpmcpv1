@@ -9,6 +9,7 @@ import { readJson } from './fetch.mjs';
 import { clip, sha256 } from './text.mjs';
 import { allowedScopes } from './knowledge.mjs';
 import { redact } from './safety.mjs';
+import { createOpportunity, kv } from '../ghl-write.mjs';
 
 export const RISKS = ['read', 'draft', 'write', 'communication', 'financial', 'destructive', 'deploy'];
 export const CAPABILITIES = ['operational', 'web', 'knowledge', 'memory', 'development', 'communication', 'finance', 'other'];
@@ -101,6 +102,16 @@ export function createRegistry({ env = process.env, fetchImpl = fetch, store = n
     { name: 'memory_write', title: 'Save to memory', description: 'Save a decision, preference, bug, fix, deployment note, research finding or open item. Never secrets.',
       inputSchema: { type: 'object', properties: { text: { type: 'string', maxLength: 1200 }, kind: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } }, scope: { type: 'string', enum: ['lcp', 'a2z', 'shared'] } }, required: ['text'], additionalProperties: false },
       source: 'intel', capability: 'memory', risk: 'write', requires: [], run: args => services.facts.add(args, { scope: args.scope || 'lcp', by: 'approved tool call' }) },
+    // GHL write (ported A2Z rule): JARVIS can only request it; it runs after the operator approves in the dashboard.
+    // On approval it rebuilds the preview live, refuses duplicates and writes once. Never on MCP.
+    { name: 'lcp_create_opportunity', title: 'Create a GHL opportunity', description: 'Create an ACQ or Retail opportunity for a GHL contact after operator approval. Refuses when the contact already has an open opportunity in that pipeline.',
+      inputSchema: { type: 'object', properties: { contactId: { type: 'string', maxLength: 64 }, pipeline: { type: 'string', maxLength: 80 }, stage: { type: 'string', maxLength: 80 }, name: { type: 'string', maxLength: 120 }, assignedTo: { type: 'string', maxLength: 80 }, monetaryValue: { type: 'number', minimum: 0 } }, required: ['contactId'], additionalProperties: false },
+      source: 'lcp', capability: 'operational', risk: 'write', requires: ['GHL_WRITE_TOKEN'], authoritative: true,
+      run: async args => {
+        const writeStore = kv(store);
+        const preview = await createOpportunity({ dryRun: true, args }, { env, fetchImpl, store: writeStore });
+        return createOpportunity({ dryRun: false, args, hash: preview.hash, idempotencyKey: randomUUID(), actor: 'JARVIS (operator approved)' }, { env, fetchImpl, store: writeStore });
+      } },
     { name: 'dev_task', title: 'Start a sandboxed development task', description: 'Queue a code change on an allowlisted repository. Runs on the VM in an isolated workspace, runs tests, returns a patch ZIP. Never deploys.',
       inputSchema: { type: 'object', properties: { repo: { type: 'string', maxLength: 120 }, objective: { type: 'string', maxLength: 2000 }, ref: { type: 'string', maxLength: 100 } }, required: ['repo', 'objective'], additionalProperties: false },
       source: 'intel', capability: 'development', risk: 'write', requires: ['DEV_REPOS'], run: args => services.dev.create(args) },

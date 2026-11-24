@@ -86,7 +86,7 @@ function moduleCard(module, report, health) {
   return card(module.title, value);
 }
 
-export function mountStudio({ root, dashboardKey, view, report, filters, brainHealth, openBrain, openStudio, brainAgents }) {
+export function mountStudio({ root, dashboardKey, view, report, filters, brainHealth, openBrain, openStudio, brainAgents, onAgentActivity = () => {} }) {
   const studioTab = document.querySelector('[data-v="studio"]');
   const tabs = new Map(Object.keys(pages).map(id => [id, document.querySelector('[data-v="' + id + '"]')]));
   const sales = document.getElementById('v-sales');
@@ -116,6 +116,7 @@ export function mountStudio({ root, dashboardKey, view, report, filters, brainHe
     filters,
     brainHealth,
     openBrain,
+    onActivity: onAgentActivity,
     previousTasks: new Map(),
     draftModules: () => working.modules,
     importModules(modules) {
@@ -459,5 +460,11 @@ export function mountStudio({ root, dashboardKey, view, report, filters, brainHe
   render();
   // Keep the source layout when Studio storage is unavailable.
   api().then(data => { if (!saved) apply(data.published); }).catch(() => {});
-  return { refreshModules };
+  // A robot on the Brain map was clicked: open that agent's chat under the map.
+  function openBrainAgent(id) {
+    brainRole = id;
+    showBrainAgent();
+    brainAgents.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  return { refreshModules, openBrainAgent };
 }

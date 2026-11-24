@@ -89,7 +89,7 @@ function formatted(text) {
   return box;
 }
 
-export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftModules, importModules, previousTasks = new Map() }) {
+export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftModules, importModules, previousTasks = new Map(), onActivity = () => {} }) {
   let role = 'systems';
   let threadId = null;
   let messages = [];
@@ -645,6 +645,9 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
     messages.push({ role: 'user', content: task });
     setBusy(true);
     renderLog(true);
+    // Robots on the Brain map follow the chat (A2Z): busy now, packets along the trace, then a speech bubble.
+    const activity = event => { try { onActivity({ agent: requestedRole, ...event }); } catch { /* the map is optional */ } };
+    activity({ type: 'busy' });
     try {
       const command = { role: requestedRole, prompt: task, previousTask };
       if (threadId) command.threadId = threadId;
@@ -667,6 +670,7 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
       const meta = {};
       for (const name of ['trace', 'approved', 'buildSummary', 'engine', 'unavailable', 'sources', 'modules', 'usage', 'agent', 'plan', 'planHash', 'warnings', 'validation', 'execute', 'draft', 'provider', 'citations', 'provenance', 'verification', 'taskId']) if (result[name] !== undefined) meta[name] = result[name];
       messages.push({ id: result.messageId, role: 'assistant', content: result.answer, meta });
+      activity({ type: 'reply', trace: result.trace || [], text: result.answer });
       if (result.threadId) {
         if (command.newThread) topicMap.classified(result.threadId);
         threadId = result.threadId;
@@ -676,6 +680,7 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
     } catch (error) {
       if (role !== requestedRole) return;
       messages.push({ role: 'assistant', content: error.message, error: true });
+      activity({ type: 'error', text: error.message });
       prompt.value ||= task;
     } finally {
       setBusy(false);

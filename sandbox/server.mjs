@@ -29,6 +29,8 @@ const routes = {
   '/api/ask': (await import('../netlify/functions/ask.mjs')).default,
   '/mcp': (await import('../netlify/functions/mcp.mjs')).default,
   '/api/workflows': (await import('../netlify/functions/workflows.mjs')).default,
+  '/api/dash': (await import('../netlify/functions/dash.mjs')).default,
+  '/api/jarvis/confirm': (await import('../netlify/functions/jarvis-confirm.mjs')).createConfirmHandler({ openStore: async () => jarvisStore }),
   '/api/alerts': (await import('../netlify/functions/alerts.mjs')).default,
 };
 const files = { '/': ['index.html', 'text/html; charset=utf-8'], '/lcp-metrics.js': ['lcp-metrics.js', 'application/javascript'], '/sample-data.js': ['sample-data.js', 'application/javascript'], '/brain3d.js': ['brain3d.js', 'application/javascript'] };

@@ -9,7 +9,8 @@ test('initialize negotiates protocol and lists tools', async () => {
   assert.equal(init.result.protocolVersion, '2025-03-26');
   assert.ok(init.result.capabilities.tools);
   const list = await (await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).json();
-  assert.deepEqual(list.result.tools.map(t => t.name), ['activity_volume', 'calls_by_user', 'opportunities_generated', 'sms_to_qualified', 'dials_to_qualified', 'accounting_summary', 'workflow_stats', 'ask_insights']);
+  assert.deepEqual(list.result.tools.map(t => t.name), ['activity_volume', 'calls_by_user', 'opportunities_generated', 'sms_to_qualified', 'dials_to_qualified', 'accounting_summary', 'workflow_stats', 'ask_insights',
+    'dashboard_kpis', 'dashboard_tasks', 'marketing_yield', 'marketing_recommendations', 'market_news']);
 });
 
 test('notifications return 202 with no body', async () => {

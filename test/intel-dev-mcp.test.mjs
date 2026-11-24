@@ -122,11 +122,11 @@ test('MCP: main key unchanged, scoped tokens see only their scopes, intel tools 
   process.env.MCP_TOKENS = JSON.stringify([{ name: 'kb', sha256: createHash('sha256').update(scoped).digest('hex'), scopes: ['knowledge:read'] }]);
   const call = (token, body) => mcp(new Request('http://x/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token }, body: JSON.stringify(body) }));
   const list = async token => (await (await call(token, { jsonrpc: '2.0', id: 1, method: 'tools/list' })).json()).result.tools.map(t => t.name);
-  assert.equal((await list('m'.repeat(32))).length, 8);
+  assert.equal((await list('m'.repeat(32))).length, 13);
   assert.deepEqual(await list(scoped), []);
   process.env.MCP_INTEL_TOOLS = '1';
   assert.deepEqual(await list(scoped), ['knowledge_search']);
-  assert.equal((await list('m'.repeat(32))).length, 12);
+  assert.equal((await list('m'.repeat(32))).length, 17);
   const denied = await (await call(scoped, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'calls_by_user', arguments: {} } })).json();
   assert.equal(denied.error.code, -32602);
   assert.equal((await call('x'.repeat(24), { jsonrpc: '2.0', id: 3, method: 'ping' })).status, 401);

@@ -36,7 +36,11 @@ test('the VM timetable runs in Pacific time, DST aware', () => {
   assert.deepEqual(dueJobs(Date.parse('2026-11-18T15:05:00Z')), ['slack-briefing']);                       // 7:05 PST Wed
   assert.deepEqual(dueJobs(Date.parse('2026-07-15T14:05:00Z')), ['slack-briefing']);                       // 7:05 PDT Wed
   assert.deepEqual(dueJobs(Date.parse('2026-11-21T15:05:00Z')), []);                                       // Saturday
-  assert.deepEqual(dueJobs(Date.parse('2026-11-18T20:07:00Z')), []);                                       // off the 5 minute grid
+  assert.deepEqual(dueJobs(Date.parse('2026-11-18T20:07:00Z')), ['dash-sync']);                            // 12:07 PST: dashboard data sync
+  assert.deepEqual(dueJobs(Date.parse('2026-11-18T20:37:00Z')), ['dash-sync']);                            // 12:37 PST
+  assert.deepEqual(dueJobs(Date.parse('2026-11-18T20:12:00Z')), []);                                       // off every grid
+  assert.deepEqual(dueJobs(Date.parse('2026-11-19T11:07:00Z')), ['dash-sync']);                            // 3:07 AM PST: hourly overnight
+  assert.deepEqual(dueJobs(Date.parse('2026-11-19T11:37:00Z')), []);                                       // 3:37 AM PST: skipped overnight
 });
 
 test('a job slot can only be claimed once across Netlify and the VM when Supabase is shared', async () => {

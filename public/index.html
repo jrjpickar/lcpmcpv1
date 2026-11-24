@@ -177,6 +177,40 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
 @media (max-width:1180px){.kpis{grid-template-columns:repeat(3,1fr)}.strip{grid-template-columns:repeat(3,1fr)}.opps{grid-template-columns:1fr 1fr}.ai{grid-template-columns:1fr}}
 @media (max-width:820px){.sigs{grid-template-columns:1fr 1fr}.sigd .cols{grid-template-columns:1fr}.callgrid,.paths,.path-body,.two{grid-template-columns:1fr}.opps{grid-template-columns:1fr}.ai ol{grid-template-columns:1fr}}
 @media (max-width:560px){.brain{height:calc(100dvh - 205px);min-height:440px}.b3-panel{top:auto;bottom:10px;right:10px;left:10px;width:auto}.b3-label span{display:none}.b3-label{padding:3px 7px}.brain-hint{display:none}.wrap{padding:14px}.kpis,.strip{grid-template-columns:1fr 1fr}.kpi .v{font-size:22px}.filters{margin-left:0}nav.tabs button{padding:10px 10px}}
+
+/* LCP Brain city (ported from A2Z): district and agent labels, speech bubbles */
+.c3-canvas{position:absolute;inset:0;display:block;outline:none;touch-action:pan-y;cursor:grab}
+.c3-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:2}
+.c3-label{--c:#3987e5;position:absolute;left:0;top:0;pointer-events:auto;display:grid;gap:1px;padding:5px 10px;border:1px solid color-mix(in srgb,var(--c) 55%,transparent);border-radius:10px;background:#10142bd9;box-shadow:0 3px 8px #0006;font-size:11.5px;line-height:1.25;text-align:left;white-space:nowrap;color:var(--text);cursor:pointer}
+.c3-label b{color:var(--c);font-weight:700}.c3-label span{font-variant-numeric:tabular-nums;font-weight:650}
+.c3-label.tag{padding:2px 7px;font-size:10.5px;border-radius:7px;opacity:.92}
+.c3-label.hot{border-color:var(--c);box-shadow:0 0 0 1px var(--c),0 0 22px color-mix(in srgb,var(--c) 45%,transparent);z-index:2}
+.c3-label.alert::after{content:"!";position:absolute;top:-8px;right:-8px;display:grid;place-items:center;width:18px;height:18px;border-radius:50%;background:#ff4d5e;color:#fff;font-size:11px;font-weight:800;box-shadow:0 0 0 3px #ff4d5e44;animation:c3pulse 1s infinite alternate}
+.c3-label.agent{border-style:dashed}
+.c3-label.agent[data-state="busy"]::after,.c3-label.agent[data-state="error"]::after{content:"";position:absolute;top:-4px;right:-4px;width:9px;height:9px;border-radius:50%;background:var(--c);animation:c3pulse .5s infinite alternate}
+.c3-label.agent[data-state="error"]::after{background:#ff4d5e}.c3-label.agent[data-state="done"]{border-color:#2ee67a}
+.c3-bubbles{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:3}
+.c3-bubble{--c:#3987e5;position:absolute;left:0;top:0;max-width:240px;padding:7px 10px;border:1px solid var(--c);border-radius:12px;background:#0d1126ee;color:#f4f1ff;font-size:12px;line-height:1.35;white-space:normal;box-shadow:0 8px 22px #000a,0 0 18px color-mix(in srgb,var(--c) 35%,transparent);animation:c3in .25s ease-out}
+.c3-bubble::after{content:"";position:absolute;left:50%;bottom:-6px;width:10px;height:10px;background:#0d1126;border-right:1px solid var(--c);border-bottom:1px solid var(--c);transform:translateX(-50%) rotate(45deg)}
+@keyframes c3pulse{from{opacity:.55}to{opacity:1}}@keyframes c3in{from{opacity:0;translate:0 6px}to{opacity:1;translate:0 0}}
+@media (max-width:560px){.c3-label span{display:none}.c3-label.tag{display:none}.c3-label.agent.tag{display:grid}.c3-bubble{max-width:180px;font-size:11px}}
+@media (prefers-reduced-motion:reduce){.c3-bubble,.c3-label::after{animation:none}}
+/* Marketing tab */
+.mk-recs{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.mk-recs li{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2)}
+.mk-tag{font-size:11px;font-weight:700;border-radius:999px;padding:2px 8px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+.mk-tag.up{background:#0b3a1d;color:#7ff0a8}.mk-tag.down{background:#3d1416;color:#ffb3b3}.mk-tag.shift{background:#1c2a52;color:#9fc0ff}.mk-tag.check{background:#3a2c08;color:#fde68a}
+.mk-recs b{display:block}.mk-recs small{color:var(--text-2)}
+.mk-conf{font-size:11px;color:var(--muted);white-space:nowrap}
+.mk-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.mk-table{width:100%;border-collapse:collapse;font-size:13px}.mk-table th{color:var(--muted);font-weight:600;text-align:right;padding:6px 8px;border-bottom:1px solid var(--line);font-size:12px}.mk-table th:first-child,.mk-table td:first-child{text-align:left}
+.mk-table td{padding:6px 8px;border-bottom:1px solid var(--grid);text-align:right;font-variant-numeric:tabular-nums}.mk-table tr.low td{color:var(--muted)}
+.mk-hours{display:grid;grid-template-columns:repeat(15,1fr);gap:4px;align-items:end;height:120px;margin-top:8px}
+.mk-hours div{background:#3987e5;border-radius:4px 4px 0 0;min-height:2px;position:relative}.mk-hours div.best{background:#0ca30c}
+.mk-hours span{position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);font-size:10px;color:var(--muted)}
+.mk-news{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}.mk-news section{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--surface-2)}
+.mk-news h4{margin:0 0 4px;font-size:13px}.mk-news p{margin:0 0 6px;color:var(--muted);font-size:12px}.mk-news a{color:#9fc0ff;font-size:12.5px;display:block;margin:4px 0;text-decoration:none}.mk-news a:hover{text-decoration:underline}
+@media (max-width:820px){.mk-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -194,8 +228,9 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
     </div>
   </header>
   <nav class="tabs" role="tablist">
-    <button role="tab" data-v="brain" aria-selected="false" id="brainTab">Brain 3D</button>
-    <button role="tab" data-v="sales" aria-selected="true">Sales</button>
+    <button role="tab" data-v="brain" aria-selected="true" id="brainTab">Brain 3D</button>
+    <button role="tab" data-v="sales" aria-selected="false">Sales</button>
+    <button role="tab" data-v="marketing" aria-selected="false">Marketing</button>
     <button role="tab" data-v="workflows" aria-selected="false">Workflows</button>
     <button role="tab" data-v="accounting" aria-selected="false">Accounting</button>
     <button role="tab" data-v="studio" aria-selected="false" hidden>Studio</button>
@@ -203,7 +238,7 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
   <div id="err"></div>
 
   <!-- BRAIN 3D -->
-  <div class="view" id="v-brain"><div class="brain-activity" aria-label="Outbound activity" aria-busy="true">
+  <div class="view on" id="v-brain"><div class="brain-activity" aria-label="Outbound activity" aria-busy="true">
     <section>Outbound calls<strong id="brainCalls">—</strong><small id="brainCallDetail"></small></section>
     <section>Outbound SMS<strong id="brainSms">—</strong><small id="brainSmsDetail"></small></section>
     <div class="meta" id="brainActivityMeta" aria-live="polite"></div><button type="button" class="btn" id="brainRetry" hidden>Retry activity</button>
@@ -213,7 +248,7 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
   </details><div id="brainAgents"></div><div class="brain" id="brain3d"><div class="brain-top"><h2>LCP Brain</h2><div class="meta" id="brainMeta"></div></div><div class="brain-hint">Drag to rotate · scroll to zoom · click a building</div></div></div>
 
   <!-- SALES -->
-  <div class="view on" id="v-sales">
+  <div class="view" id="v-sales">
     <section class="kpis" id="kpis" data-studio-widget="kpis"></section>
     <section class="card ai" data-studio-widget="insights">
       <div><h2 style="margin:0 0 2px">Insights</h2><div class="meta" id="aiMeta"></div><ol id="insights"></ol></div>
@@ -253,6 +288,9 @@ table.mtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-num
   <!-- ACCOUNTING -->
   <div class="view" id="v-accounting"></div>
 
+  <!-- MARKETING: where to iterate marketing for more opportunities (data dashboard sync + niche market news) -->
+  <div class="view" id="v-marketing"></div>
+
   <div class="view" id="v-studio"></div>
 
   <div class="foot"><span id="footMeta"></span></div>
@@ -267,10 +305,11 @@ var M = window.LcpMetrics;
 var STATIC = !!window.LCP_STATIC;
 var key = (location.hash.match(/key=([^&]+)/) || [])[1] || ssGet('lcpKey') || '';
 if (key) ssSet('lcpKey', key);
-var state = { sig: '', view: 'sales', preset: '30d', from: '', to: '', rep: '', locBy: 'city', sort: { k: 'dials', dir: -1 } };
+var state = { sig: '', view: 'brain', preset: '30d', from: '', to: '', rep: '', locBy: 'city', sort: { k: 'dials', dir: -1 } };
 var studio = null, studioLoad = null;
 var sampleData = null, last = null, wf = null, brainReady = false, brainLoading = false, brainReport = null, brainActivity = null, renderedActivity = null;
 var brainStatus = null, renderedStatus = null, renderedWorkflow = null, brainWorkflow = null, twilioReps = null, brainLeads = null, renderedLeads = null;
+var dash = null, dashLoading = false, dashAt = 0, renderedDash = null, news = null, newsLoading = false, mkWindow = '90d';
 var reads = new Map(), reportGeneration = 0, workflowGeneration = 0, activityGeneration = 0, filterTimer;
 var SLOTS = ['--s1','--s2','--s3','--s4','--s5','--s6','--s7','--s8'], repColor = {};
 var OUT_COLOR = { noanswer: 'var(--s1)', notinterested: 'var(--s2)', followup: 'var(--s3)', bad: 'var(--s4)', other: 'var(--s7)' };
@@ -893,27 +932,96 @@ function brainModel(r){
       : (brainLeads && brainLeads.key === leadsUrl() && !brainLeads.loading ? brainLeads : {}),
     automations: { workflows: wo.totalWorkflows, entered: wo.enrollments, completion: wo.completionRate, skipped: wo.skipped, failed: wo.failed },
     revenue: ledgerOk ? { fees: a.revenue, net: a.net, pending: a.feesPending, deals: a.dealsPaid, emd: a.emdAtRisk } : {},
-    health: ops.health || { sources: health }, twilio: ops.twilio || brainStatus?.billing || {}
+    health: ops.health || { sources: health }, twilio: ops.twilio || brainStatus?.billing || {},
+    // A2Z structure: synced data dashboard numbers, today's alerts and the JARVIS agents on the ring.
+    dash: dash, window: dashWindow(), alerts: currentRange ? (r.alerts || []) : [], agents: CITY_AGENTS
   };
+}
+// JARVIS agents on the inner ring, in A2Z order: the dispatcher first, then the specialists. Click one to talk to it.
+var CITY_AGENTS = [
+  { id: 'main', name: 'JARVIS', color: '#6aa8ff' }, { id: 'systems', name: 'Systems', color: '#7fb2ff' }, { id: 'market', name: 'Market', color: '#ff5fa2' },
+  { id: 'data', name: 'Data', color: '#35d0ba' }, { id: 'email', name: 'Email', color: '#e8aa79' }, { id: 'research', name: 'Research', color: '#b57bff' },
+  { id: 'build', name: 'Build', color: '#46e08a' }, { id: 'qc', name: 'QC', color: '#ff6fa8' }, { id: 'gemini', name: 'Gemini', color: '#4f8cff' }, { id: 'cloudflare', name: 'Workers AI', color: '#f6821f' }
+];
+function loadNews(){
+  if (STATIC || newsLoading || news) return;
+  newsLoading = true;
+  api('/api/dash?part=news').then(function(d){ news = d; }).catch(function(e){ news = { error: e.message, topics: [] }; })
+    .finally(function(){ newsLoading = false; if (state.view === 'marketing') renderMarketing(); });
+}
+// Marketing tab: where to iterate marketing to get more opportunities. Same numbers as the marketing_* MCP tools.
+function renderMarketing(){
+  var root = $('v-marketing');
+  if (STATIC) { root.innerHTML = '<div class="card"><h2>Marketing</h2><div class="meta">Needs the LCP server (data dashboard sync). Not available in the static preview.</div></div>'; return; }
+  if (!dash) { root.innerHTML = '<div class="card"><h2>Marketing</h2><div class="meta">Loading the data dashboard numbers…</div></div>'; return; }
+  if (dash.empty || !dash.marketing) { root.innerHTML = '<div class="card"><h2>Marketing</h2><div class="meta">' + esc((dash.meta && dash.meta.warnings && dash.meta.warnings[0]) || 'No data yet.') + '</div></div>'; return; }
+  var m = dash.marketing[mkWindow], tagOf = function(st){ return st === 'Increase' ? 'up' : st === 'Reduce' || st === 'Retire' ? 'down' : st === 'Shift' ? 'shift' : 'check'; };
+  var label = { Increase: 'More', Reduce: 'Less', Retire: 'Retire', Shift: 'Shift', Investigate: 'Check' };
+  var seg = '<div class="mini" id="mkWin">' + ['30d', '90d'].map(function(w){ return '<button data-w="' + w + '" aria-pressed="' + (w === mkWindow) + '">' + w.toUpperCase() + '</button>'; }).join('') + '</div>';
+  var recs = (m.recommendations || []).map(function(r){
+    return '<li><span class="mk-tag ' + tagOf(r.status) + '">' + esc(label[r.status] || r.status) + '</span><div><b>' + esc(r.action) + '</b><small>' + esc(r.evidence) + '</small></div><span class="mk-conf">' + esc(r.confidence) + ' · ' + n(r.worked) + ' worked</span></li>';
+  }).join('') || '<li><div><b>No move clears the sample floors yet.</b><small>Rows need enough worked sellers before a recommendation is made.</small></div></li>';
+  var table = function(title, block, keyLabel){
+    var rows = (block.rows || []).slice(0, 12).map(function(r){
+      return '<tr class="' + (r.lowSample ? 'low' : '') + '"><td>' + esc(r.key) + '</td><td>' + n(r.worked) + '</td><td>' + n(r.contacted) + '</td><td>' + n(r.qualified) + '</td><td>' + (r.qualPer100Worked == null ? '-' : n(r.qualPer100Worked, 1)) + '</td><td>' + (r.vsMedian == null ? '-' : n(r.vsMedian, 2) + 'x') + '</td></tr>';
+    }).join('');
+    return '<div class="card"><div class="card-h"><h2>' + esc(title) + '</h2><div class="meta">Median ' + (block.baselineQualPer100 == null ? '-' : n(block.baselineQualPer100, 1)) + ' per 100 worked. Grey rows are below the sample floor.</div></div>'
+      + '<table class="mk-table"><thead><tr><th>' + keyLabel + '</th><th>Worked</th><th>Contacted</th><th>Qualified</th><th>Per 100</th><th>vs median</th></tr></thead><tbody>' + (rows || '<tr><td colspan="6">No rows</td></tr>') + '</tbody></table></div>';
+  };
+  var lists = (m.lists.rows || []).filter(function(r){ return !r.unattributed; }).slice(0, 12).map(function(r){
+    return '<tr class="' + (r.lowSample ? 'low' : '') + '"><td>' + esc(r.batch) + '</td><td>' + n(r.imported) + '</td><td>' + n(r.worked) + '</td><td>' + n(r.qualified) + '</td><td>' + (r.density == null ? '-' : n(r.density, 1)) + '</td><td>' + esc(r.status || '-') + '</td></tr>';
+  }).join('');
+  var hours = (m.timing.hours || []).filter(function(h){ return h.hour >= 7 && h.hour <= 21; });
+  var maxRate = Math.max.apply(null, hours.map(function(h){ return h.contactRate || 0; }).concat([0.0001]));
+  var best = hours.filter(function(h){ return h.dials >= 50; }).sort(function(a, b){ return b.contactRate - a.contactRate; }).slice(0, 3).map(function(h){ return h.hour; });
+  var bars = hours.map(function(h){
+    var lbl = ((h.hour + 11) % 12 + 1) + (h.hour < 12 ? 'a' : 'p');
+    return '<div class="' + (best.indexOf(h.hour) >= 0 ? 'best' : '') + '" style="height:' + Math.round(100 * (h.contactRate || 0) / maxRate) + '%" data-tip="' + esc(lbl + ': ' + n(h.dials) + ' dials, ' + pct(h.contactRate) + ' contact rate, ' + (h.qualifiedPer1000Dials == null ? '-' : n(h.qualifiedPer1000Dials, 1)) + ' qualified per 1,000 dials, ' + pct(h.replyRate) + ' text reply rate') + '"><span>' + lbl + '</span></div>';
+  }).join('');
+  var newsHtml = !news ? '<div class="meta">Loading headlines…</div>' : news.error ? '<div class="meta">' + esc(news.error) + '</div>' : '<div class="mk-news">' + (news.topics || []).map(function(t){
+    return '<section><h4>' + esc(t.topic) + '</h4>' + (t.lever ? '<p>' + esc(t.lever) + '</p>' : '') + (t.items || []).map(function(i){ return '<a href="' + esc(i.url) + '" target="_blank" rel="noopener noreferrer">' + esc(i.title) + (i.source ? ' · ' + esc(i.source) : '') + '</a>'; }).join('') + '</section>';
+  }).join('') + '</div><div class="meta" style="margin-top:8px">' + esc(news.note || '') + ' Source: ' + esc(news.provider || '') + '.</div>';
+  root.innerHTML = '<div class="card"><div class="card-h"><div><h2>Where to iterate marketing</h2><div class="meta">' + esc(m.range.from + ' to ' + m.range.to) + ' · data dashboard sync ' + esc(dash.meta && dash.meta.refreshedAt ? new Date(dash.meta.refreshedAt).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }) + ' PT' : '') + ' · qualified = ACQ/Retail opportunity (not Not Ready) or Hot</div></div>' + seg + '</div><ol class="mk-recs">' + recs + '</ol></div>'
+    + '<div class="card"><div class="card-h"><h2>Lists (original source batch)</h2><div class="meta">Data dashboard Opportunity Density rules and thresholds. Per 1,000 = qualified per 1,000 worked.</div></div><table class="mk-table"><thead><tr><th>List</th><th>Imported</th><th>Worked</th><th>Qualified</th><th>Per 1,000</th><th>Status</th></tr></thead><tbody>' + (lists || '<tr><td colspan="6">No list tags yet</td></tr>') + '</tbody></table></div>'
+    + '<div class="mk-grid">' + table('ZIP codes', m.zips, 'ZIP') + table('Cities', m.cities, 'City') + table('GHL tags', m.tags, 'Tag') + table('Contact source', m.contactSources, 'Source') + '</div>'
+    + '<div class="card"><div class="card-h"><h2>Contact rate by hour (Pacific)</h2><div class="meta">Calls over 65 seconds / dials. Green = best 3 hours with 50+ dials. Hover for qualified per 1,000 dials and text reply rate.</div></div><div class="mk-hours">' + bars + '</div><div style="height:18px"></div></div>'
+    + '<div class="card"><div class="card-h"><h2>Niche market news</h2><div class="meta">LA County distressed-property topics. Each card says which marketing lever it informs.</div></div>' + newsHtml + '</div>';
+  $('mkWin').querySelectorAll('button').forEach(function(b){ b.onclick = function(){ mkWindow = b.dataset.w; renderMarketing(); }; });
+}
+function dashWindow(){
+  var p = state.from && state.to ? '' : state.preset;
+  return ['today', 'wtd', 'mtd', '7d', '30d', '90d'].indexOf(p) >= 0 ? p : '30d';
+}
+// Data dashboard numbers (GET /api/dash). Re-read at most once a minute; the sync itself runs every 30 minutes.
+function loadDash(force){
+  if (STATIC || dashLoading || (!force && dash && Date.now() - dashAt < 60000)) return;
+  dashLoading = true;
+  api('/api/dash').then(function(d){ dash = d; dashAt = Date.now(); })
+    .catch(function(e){ dash = dash || { empty: true, meta: { warnings: [e.message] } }; })
+    .finally(function(){ dashLoading = false; if (state.view === 'brain') showBrain(); if (state.view === 'marketing') renderMarketing(); });
 }
 function showBrain(){
   if (studio && state.view === 'brain') studio.refreshModules();
-  if (state.view !== 'brain' || (brainReady && brainReport === last && renderedActivity === brainActivity && renderedStatus === brainStatus && renderedWorkflow === brainWorkflow && renderedLeads === brainLeads)) return;
+  if (state.view !== 'brain' || (brainReady && brainReport === last && renderedActivity === brainActivity && renderedStatus === brainStatus && renderedWorkflow === brainWorkflow && renderedLeads === brainLeads && renderedDash === dash)) return;
   $('brainMeta').textContent = '';
   if (window.LcpBrain) {
     try {
       if (brainReady) window.LcpBrain.update(brainModel(last));
-      else window.LcpBrain.mount($('brain3d'), brainModel(last), { onNavigate: function(v){ state.touched = true; setView(v); } });
+      else window.LcpBrain.mount($('brain3d'), brainModel(last), {
+        onNavigate: function(v){ state.touched = true; setView(v); },
+        // Click a robot: open that agent's JARVIS chat under the map (Studio key needed, as before).
+        onAgent: function(id){ loadStudio().then(function(st){ st.openBrainAgent(id); }).catch(function(){ window.LcpBrain.agentSay(id, 'JARVIS is not available here.'); }); }
+      });
       brainReady = true;
     } catch (e) {
       $('brainMeta').textContent = '3D view unavailable on this device.';
     }
-    brainReport = last; renderedActivity = brainActivity; renderedStatus = brainStatus; renderedWorkflow = brainWorkflow; renderedLeads = brainLeads;
+    brainReport = last; renderedActivity = brainActivity; renderedStatus = brainStatus; renderedWorkflow = brainWorkflow; renderedLeads = brainLeads; renderedDash = dash;
     return;
   }
   if (brainLoading) return;
   brainLoading = true;
-  var s = document.createElement('script'); s.src = 'brain3d.js?v=leads-zip';
+  var s = document.createElement('script'); s.src = 'brain3d.js?v=city-2';
   s.onload = function(){ brainLoading = false; showBrain(); };
   s.onerror = function(){ brainLoading = false; $('brainMeta').textContent = 'Could not load the 3D view.'; };
   document.head.appendChild(s);
@@ -923,10 +1031,11 @@ function showBrain(){
 function setView(v){
   state.view = v;
   document.querySelectorAll('nav.tabs button').forEach(function(b){ b.setAttribute('aria-selected', b.dataset.v === v); });
-  ['brain', 'sales', 'workflows', 'accounting', 'studio'].forEach(function(x){ $('v-' + x).className = 'view' + (x === v ? ' on' : ''); });
+  ['brain', 'sales', 'marketing', 'workflows', 'accounting', 'studio'].forEach(function(x){ $('v-' + x).className = 'view' + (x === v ? ' on' : ''); });
   $('rep').disabled = v !== 'sales' && v !== 'brain';
   if (v === 'workflows') loadWorkflows();
-  if (v === 'brain') { if (!STATIC) loadStudio().catch(function(){}); refreshBrainStatus(); refreshBrainWorkflowStatus(); refreshBrainLeads(); loadBrainActivity(); showBrain(); }
+  if (v === 'brain') { if (!STATIC) loadStudio().catch(function(){}); refreshBrainStatus(); refreshBrainWorkflowStatus(); refreshBrainLeads(); loadBrainActivity(); loadDash(); showBrain(); }
+  if (v === 'marketing') { loadDash(); loadNews(); renderMarketing(); }
   if (v === 'studio') openStudio();
   if (studio) studio.refreshModules();
   if (last) { if (v === 'accounting') renderAccounting(last); if (v === 'sales') render(last); }
@@ -946,12 +1055,24 @@ function loadStudio(){
         openBrain: function(){ state.touched = true; setView('brain'); },
         openStudio: function(){ state.touched = true; setView('studio'); },
         brainAgents: $('brainAgents'),
+        // JARVIS activity drives the robots on the map (busy, delegation packets, speech bubble, done / error).
+        onAgentActivity: function(e){
+          var B = window.LcpBrain; if (!B || !brainReady) return;
+          if (e.type === 'busy') { B.agentState(e.agent, 'busy'); return; }
+          if (e.type === 'error') { B.agentState(e.agent, 'error'); B.agentSay(e.agent, e.text || 'Request failed.'); return; }
+          var trace = [e.agent].concat((e.trace || []).filter(function(id){ return id !== e.agent && id !== 'execute'; }));
+          var delay = 0, i;
+          for (i = 0; i < trace.length - 1; i++) { B.agentFlow(trace[i], trace[i + 1], delay); B.agentState(trace[i + 1], 'busy'); delay += 0.9; }
+          for (i = trace.length - 1; i > 0; i--) { B.agentFlow(trace[i], trace[i - 1], delay); delay += 0.9; }
+          setTimeout(function(){ trace.forEach(function(id){ B.agentState(id, 'done'); }); B.agentSay(e.agent, firstLine(e.text)); }, delay * 1000);
+        },
       });
       return studio;
     }).catch(function(error){ studioLoad = null; throw error; });
   }
   return studioLoad;
 }
+function firstLine(t){ var l = String(t || '').split('\n').map(function(x){ return x.replace(/^[#>*\-\s]+/, '').trim(); }).filter(Boolean)[0] || ''; return l.length > 150 ? l.slice(0, 147) + '...' : l; }
 function openStudio(){
   loadStudio().catch(function(){ $('v-studio').textContent = 'Could not load the Studio. Select Studio to retry.'; });
 }
@@ -980,6 +1101,8 @@ document.addEventListener('mousemove', function(e){
 });
 var rt, lastW = innerWidth; addEventListener('resize', function(){ if (innerWidth === lastW) return; lastW = innerWidth; clearTimeout(rt); rt = setTimeout(function(){ if (last && state.view !== 'brain' && state.view !== 'workflows') render(last); }, 150); });
 load();
+// Brain is the home view (A2Z structure): start what setView('brain') starts, without a second activity read.
+if (state.view === 'brain') { if (!STATIC) loadStudio().catch(function(){}); refreshBrainStatus(); refreshBrainWorkflowStatus(); refreshBrainLeads(); loadDash(); }
 })();
 </script>
 <dialog id="voice-dialog" aria-labelledby="voice-title">

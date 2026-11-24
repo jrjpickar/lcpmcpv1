@@ -40,22 +40,25 @@ The rep scorecard also has **Qual / 100 conv**: qualified leads (last dial credi
 - `GET /api/alerts` shows what would be sent right now. `POST /api/alerts` posts a test message (both need the dashboard key).
 - Groq is only called when someone presses Ask on the page. Repeat questions on the same data within 10 minutes reuse the last answer. The context sent is about 900 tokens and answers are capped at `GROQ_MAX_TOKENS` (350).
 
-## Brain 3D
-A clickable 3D city built with Three.js. The LCP Brain (Groq core) sits in the middle; data packets flow into it from each structure:
+## Brain 3D (A2Z city structure)
+The home view. The A2Z operations city engine, ported: ten districts on a ring around the Brain (HQ), and the JARVIS agents as robots on an inner ring, in the same placement and with the same animations as A2Z.
 
-| Structure | Shows | Driven by |
+| District | Shows | Visual |
 |---|---|---|
-| Dialer tower | Dials, live connect rate, talk time | Height = dials, lit windows = connect rate |
-| Post office + mast | Texts sent, replies, texts per qualified | Mast height and signal speed = texts |
-| Neighborhood | Opportunities by city | One house per city, height = opps |
-| Factory | Workflows, enrolled, finished, failed | Gear, conveyor and smoke speed = enrollments; red beacon = failed steps |
-| Bank | Fees received, net, pending, EMD | Coin stacks: received, pending (glass), net |
-| Control room | Data source health | One light per source |
-| Water tower | Twilio balance, spend per day, days left | Fill level; amber under 2x the alert, red under it |
+| Dials | Dials, answered, contacts (over 65s), talk time | Desk with dial sheet stacks |
+| Texts | Rep and automated texts, replies by sentiment | Envelope stack |
+| Sellers worked | Worked, contacted, qualified | Parking lot |
+| Qualified sellers | Qualified sellers, opportunities by pipeline | One house per seller (scaled) |
+| Offers and contracts | Offers, contracts, appointments | Crane, one pennant each |
+| Opportunities | Opportunities created per pipeline | One building per pipeline |
+| Team | Reps; on the phones today vs not dialing | Crew figures, click one for that rep |
+| Marketing | Top ZIPs by qualified per 100 worked, number of recommended moves | Billboard, searchlight, megaphone |
+| Cash | Ledger fees, net, pending, EMD | Tank fill = fees vs spend |
+| System health | Every connection plus the data dashboard sync | PC: fans = sync, RAM sticks = connections |
 
-The activity cards read Calls and Messages directly from the configured Twilio account for the selected Pacific dates. They show outbound phone calls with a start time, calls over 60 seconds, outbound SMS with a send time, and SMS delivered or read. Rep filters use dedicated From numbers from `AGENT_ASSIGNMENTS`. Shared and unmapped numbers appear in all-rep totals. The cards show when MCP fetched Twilio and flag partial results.
+Agents (JARVIS, Systems, Market, Data, Email, Research, Build, QC, Gemini, Workers AI): idle, busy, done and error animations; a robot walks to a district with an alert it watches and raises a flag; a speech bubble shows its last answer; packets fly along the delegation trace. Click a robot to open its chat under the map (Studio key). Click a district for the detail panel. Alerts (Sales signals) put a siren on the district they belong to. Cars drive Dials to Qualified when qualified sellers go up, and Qualified to Offers when offers or contracts go up.
 
-Drag to rotate, scroll to zoom, and click a building for details. The city uses the Sales report, so the dialer tower shows recorded dispositions. The control room shows completed report reads, partial Twilio coverage, workflow feed freshness and a Groq model check. These are checks of this app’s connections. The water tower reads the current billing balance directly from Twilio when Brain opens. Balance is independent of the selected date range. The Workflows tab loads its own rolling window when opened. The factory can reuse that data for matching window lengths.
+District numbers come from the data dashboard sync (below). Until the first sync finishes they fall back to the Sales report.
 
 Source: `src/brain3d.mjs`. Rebuild the bundle after editing it: `npm i && node scripts/build-brain.mjs` (writes `public/brain3d.js`, Three.js included, no CDN).
 
@@ -117,10 +120,42 @@ Publish `public` and use `netlify/functions` for functions. The repository's Net
 | `CACHE_SECONDS` | Optional | Default 300 |
 | `DATA_MODE` | Optional | `sample` forces sample data |
 
+## Data dashboard data (direct from the sources)
+`lib/dash-sync.mjs` reads the same sources as the v2 data dashboard, straight from the source APIs, and keeps LCP's own copy. The data dashboard keeps running unchanged; LCP only reads two settings it owns (tag visibility and batch settings) through its existing read-only `dashboard-data?settings=` GET with `DATA_DASHBOARD_KEY`. The workflow feed is still read from the dashboard, as before.
+
+- GHL: contacts (tags, first-seen tags, address, source, qualification fields), opportunities and pipelines, SMS, tasks, calendars and appointments, users. Read only.
+- Twilio: outbound calls, matched to GHL contacts by phone, reps by caller ID using the dashboard's roster (Jesse One to Seven roll up to Jesse, Kyle, Zaida and Frank excluded, flex numbers need the signed-in owner).
+- Dialer: `POST /api/dashboard/call-ownership` for the signed-in rep per call SID (same as the dashboard).
+- Rules: `netlify/functions/lib/dash/` holds unedited copies of the dashboard's modules (normalize, roster, aliases, Twilio, tasks, lead fields, LeadIntel, Opportunity Density, task metrics, tag visibility). When the dashboard changes one of these, copy the new file over.
+- Schedule: every 30 minutes 7am to 9pm Pacific, hourly overnight, at minutes 7 and 37 (off the :00 slot). Full contact pass once a night (1am to 5am); other runs read only new contacts and the last 2 days of SMS and calls. Tasks every 2 hours. A long full pass continues in the next invocation by itself.
+- LCP's first-seen tags start on its first sync. Until then the original source list is the current batch tag.
+
+| Variable | Purpose |
+|---|---|
+| `DASH_SYNC_SECRET` | Required on Netlify. Random, 16+ characters. Shared by the scheduled and background sync functions |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Already set for Brain activity. Same account the dashboard reads |
+| `AGENT_ASSIGNMENTS` | Optional. Same JSON as the dialer. Without it the dashboard's built-in phone roster is used |
+| `DIALER_URL`, `DIALER_EXPORT_KEY` | Already set. Also used for signed-in call ownership |
+| `DATA_DASHBOARD_URL`, `DATA_DASHBOARD_KEY` | Already set. Also used to read tag visibility and batch settings |
+| `QUALIFICATION_FIELDS` | Optional. Same JSON as the dashboard |
+| `DASH_SYNC_DAYS` | Optional. Days of calls, SMS and appointments kept. Default 120 |
+| `MARKET_NEWS_TOPICS` | Optional. JSON list of topics (or `topic|topic`). `MARKET_NEWS=off` disables headlines |
+
+VM (`RUN_SCHEDULES_ON=vm`): the server runs the same sync (job `dash-sync`) and stores it under `DATA_DIR/dash`.
+
+## Marketing tab
+Where to iterate marketing to get more opportunities, for the last 30 or 90 days:
+
+- Recommendations: ranked, each with evidence, sample size and confidence. Lists use the dashboard's Opportunity Density rules and thresholds (Increase, Retire, Investigate). ZIPs, cities, GHL tags and contact sources: Target more at 1.5x the median qualified per 100 worked or better; Spend less at 0.5x or worse with at least twice the sample floor. Call and text timing: the best hours by contact rate and 24-hour reply rate.
+- Tables: lists, ZIPs, cities, tags, contact sources; contact rate by hour.
+- Niche market news: LA County foreclosures, tax delinquency, code enforcement, probate, wholesaling law, rent control, prices and inventory, mortgage rates. Each topic names the marketing lever it informs. SearXNG news when `SEARXNG_URL` is set, else Google News RSS. Titles and links only.
+
 ## MCP
 Endpoint `POST https://<site>/mcp` (Streamable HTTP, JSON responses, stateless). Header `Authorization: Bearer <MCP_KEY>`.
 
-Tools are read-only. Date-range tools take `from` and `to` or a `preset`, plus optional `rep`:
+Tools come from one registry, `lib/actions.mjs` (ported from A2Z): each tool has a scope, a risk level (read, draft, write), whether it is listed on MCP and when it is enabled. Writes are never on MCP.
+
+Date-range tools take `from` and `to` or a `preset`, plus optional `rep`:
 
 - `activity_volume` returns outbound calls, calls over 60 seconds, outbound SMS sent, SMS deliveries, daily totals and coverage directly from Twilio.
 - `calls_by_user`
@@ -131,11 +166,25 @@ Tools are read-only. Date-range tools take `from` and `to` or a `preset`, plus o
 - `workflow_stats` (`days`, 7 to 120)
 - `ask_insights` (`question`, answered by Groq from the computed metrics only)
 
-Signals are included in the existing tool outputs and in the Ask context.
+Data dashboard and marketing tools (`window`: today, wtd, mtd, 7d, 30d, 90d):
+
+- `dashboard_kpis`: dials, answered, talk time, contacts, unique sellers dialed, texts, replies, opportunities by pipeline, seller funnel, tasks, appointments, per rep.
+- `dashboard_tasks`: set, completed, overdue, longest overdue, per rep.
+- `marketing_yield` (`dimension`: list, source_list, zip, city, tag, contact_source, hour, weekday, opportunity_timing).
+- `marketing_recommendations`: ranked moves plus market headlines.
+- `market_news` (`topics` optional).
+
+Draft and write tools:
+
+- `lcp_gmail_create_draft` (scope `mail:draft`): saves a Gmail draft, never sends. Listed only with `MCP_DRAFT_TOOLS=1` and Gmail configured (`gmail.compose`). Takes a UUID `draftId`; a retry with the same ID returns the first result.
+- `lcp_create_opportunity` (scope `ghl:write`): not on MCP. JARVIS can request it (operator approval in the dashboard), or the dashboard calls `POST /api/jarvis/confirm` with the Studio key: preview with `dryRun: true` returns a hash, confirm with that hash and a UUID `idempotencyKey`. Refuses a contact that already has an open opportunity in the pipeline. ACQ and Retail pipelines only unless `GHL_WRITE_PIPELINES` lists others. Needs `GHL_WRITE_TOKEN` (opportunities.write); `GHL_ACCESS_TOKEN` stays read-only. A new opportunity is real GHL data, so the data dashboard counts it like one a rep created.
+
+Scoped tokens (`MCP_TOKENS`) take scopes `report:read`, `mail:draft`, `knowledge:read`, `memory:read`, `web:read`.
 
 ## Netlify usage
 
-- Brain activity and billing checks run on demand with no polling or scheduled imports. The billing and Groq model checks share a two-minute cache and do not submit a Groq completion. It returns counts without call or message contents. Warm functions reuse and coalesce Twilio reads across rep filters for the same range. Current ranges cache for up to two minutes, historical ranges for up to 30 minutes. Brain loads long ranges in chunks with two requests in flight. MCP splits upstream reads into 14-day windows, retries Twilio rate limits and transient server errors, and reports missing windows. A channel with missing windows displays as unavailable until its selected range is complete. Use Retry activity to reload unsuccessful date ranges.
+- The data dashboard sync is the one scheduled import: about 40 short runs a day plus one nightly full pass, as background functions. Reads from the site (Brain, Marketing, MCP) only read the saved snapshot.
+- Brain activity and billing checks run on demand with no polling. The billing and Groq model checks share a two-minute cache and do not submit a Groq completion. It returns counts without call or message contents. Warm functions reuse and coalesce Twilio reads across rep filters for the same range. Current ranges cache for up to two minutes, historical ranges for up to 30 minutes. Brain loads long ranges in chunks with two requests in flight. MCP splits upstream reads into 14-day windows, retries Twilio rate limits and transient server errors, and reports missing windows. A channel with missing windows displays as unavailable until its selected range is complete. Use Retry activity to reload unsuccessful date ranges.
 - Sales keeps the existing live-report path and attribution window. It reuses common GHL and Ledger lookups. A first long-range Sales report can still be slow.
 - For the lowest spend, leave `ALERT_WEBHOOK_URL` unset until Slack alerts are needed. The existing five-minute scheduled function then exits before provider reads. Groq runs on Ask. Use a Deploy Preview for checks and combine changes into one production deploy per changed site. [Netlify credit meters](https://docs.netlify.com/manage/accounts-and-billing/billing/billing-for-credit-based-plans/how-credits-work/)
 

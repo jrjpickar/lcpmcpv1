@@ -22,7 +22,7 @@ export function slotFor(job, now = Date.now()) {
   const p = pacific(now);
   const day = p.year + '-' + p.month + '-' + p.day;
   if (job === 'slack-briefing') return day;
-  const step = job === 'jarvis-mail-sync' ? 30 : 5;
+  const step = job === 'jarvis-mail-sync' || job === 'dash-sync' ? 30 : 5;
   return day + 't' + p.hour + '-' + String(Math.floor(Number(p.minute) / step) * step).padStart(2, '0');
 }
 
@@ -49,6 +49,8 @@ export function dueJobs(now = Date.now()) {
   const due = [];
   if (minute % 5 === 0 && hour >= 9 && hour < 21) due.push('alerts-scheduled');
   if (minute % 30 === 0) due.push('jarvis-mail-sync');
+  // Dashboard data sync: minutes 7 and 37, 7am to 9pm; only minute 7 overnight (same as dash-sync-scheduled).
+  if (minute % 30 === 7 && ((hour >= 7 && hour < 21) || minute === 7)) due.push('dash-sync');
   if (hour === 7 && minute === 5 && weekday >= 1 && weekday <= 5) due.push('slack-briefing');
   return due;
 }
