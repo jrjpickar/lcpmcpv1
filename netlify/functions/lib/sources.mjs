@@ -1,3 +1,4 @@
+import { readJson } from './read-json.mjs';
 // Data loaders. Each returns the normalized shape lcp-metrics.js expects.
 //
 //   Dialer (Triple Line):  GET {DIALER_URL}/api/dashboard/dispositions?from&to   header x-dashboard-key: DIALER_EXPORT_KEY
@@ -150,11 +151,9 @@ export async function dialerCalls(from, to, fetchImpl = fetch) {
   // The dialer export accepts at most 62 days per request.
   for (let start = from; start <= to; start = Metrics.shiftDay(start, 60)) {
     const end = Metrics.shiftDay(start, 59) < to ? Metrics.shiftDay(start, 59) : to;
-    const res = await fetchImpl(`${base}/api/dashboard/dispositions?from=${start}&to=${end}`, {
+    const payload = await readJson(`${base}/api/dashboard/dispositions?from=${start}&to=${end}`, {
       headers: { 'x-dashboard-key': key, accept: 'application/json' }, signal: AbortSignal.timeout(20000),
-    });
-    if (!res.ok) throw new Error(`export failed (HTTP ${res.status})`);
-    const payload = await res.json();
+    }, { fetchImpl });
     for (const day of Object.values(payload.days || {})) for (const row of day.rows || []) if (row?.at) out.push(normalizeDispositionRow(row));
   }
   return out;
@@ -312,9 +311,10 @@ export function normalizeLedger(payload = {}) {
 async function ledgerExport(fetchImpl) {
   const base = env('LEDGER_URL').replace(/\/+$/, '');
   if (!base || !env('LEDGER_EXPORT_KEY')) return { deals: [], spend: [], ap: null };
-  const res = await fetchImpl(`${base}/api/mcp-export`, { headers: { 'x-mcp-key': env('LEDGER_EXPORT_KEY'), accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
-  if (!res.ok) throw new Error(`export failed (HTTP ${res.status})`);
-  return normalizeLedger(await res.json());
+  const payload = await readJson(`${base}/api/mcp-export`, {
+    headers: { 'x-mcp-key': env('LEDGER_EXPORT_KEY'), accept: 'application/json' }, signal: AbortSignal.timeout(15000),
+  }, { fetchImpl });
+  return normalizeLedger(payload);
 }
 
 // ---------------- Workflows (from the v2 data dashboard's workflow feed) ----------------
@@ -327,9 +327,12 @@ export async function loadWorkflows(days = 30, fetchImpl = fetch) {
   if (!base || !env('DATA_DASHBOARD_KEY')) return { configured: false, days: d, error: 'Set DATA_DASHBOARD_URL and DATA_DASHBOARD_KEY to show workflow stats.' };
   const hit = wfCache.get(d);
   if (hit && Date.now() - hit.at < 120000) return hit.data;
-  const res = await fetchImpl(`${base}/api/workflow-feed?days=${d}`, { headers: { authorization: `Bearer ${env('DATA_DASHBOARD_KEY')}`, accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
-  if (!res.ok) throw Object.assign(new Error(`Workflow feed failed (HTTP ${res.status})`), { status: 502 });
-  const p = await res.json();
+  const p = await readJson(`${base}/api/workflow-feed?days=${d}`, {
+    headers: { authorization: `Bearer ${env('DATA_DASHBOARD_KEY')}`, accept: 'application/json' }, signal: AbortSignal.timeout(15000),
+  }, { fetchImpl }).catch(error => {
+    if (!error.upstreamStatus) throw error;
+    throw Object.assign(new Error(`Workflow feed failed (HTTP ${error.upstreamStatus})`), { status: 502 });
+  });
   const data = { configured: p.configured !== false, days: d, feed: p.feed || null, overview: p.overview || {}, weekly: p.weekly || [],
     workflows: (p.workflows || []).map(w => ({ id: w.id, name: w.name, status: w.status, entered: w.entered || 0, finished: w.finished || 0, skipped: w.skipped || 0, failed: w.failed || 0, completionRate: w.completionRate ?? null })),
     reasons: (p.reasons || []).slice(0, 20).map(r => ({ event: r.event, workflow: r.workflow, step: r.step, reason: r.reason, count: r.count })) };

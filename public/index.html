@@ -850,8 +850,11 @@ function refreshBrainStatus(fresh){
     Object.keys(labels).forEach(function(id){
       if (!status.sample) lines.push(labels[id] + ' · ' + (status.sources?.[id] ? 'Configured' : 'Not configured'));
     });
-    [['Twilio billing',status.billing],['Groq',status.groq]].forEach(function(pair){
-      if (pair[1]) lines.push(pair[0] + ' · ' + pair[1].detail + ' · ' + pair[1].elapsedMs + ' ms');
+    [['Twilio billing',status.billing,status.history?.billing],['Groq',status.groq,status.history?.groq]].forEach(function(pair){
+      if (!pair[1]) return;
+      var uptime = pair[2];
+      lines.push(pair[0] + ' · ' + pair[1].detail + ' · ' + pair[1].elapsedMs + ' ms' +
+        (uptime ? ' · ' + uptime.uptime24h + '% uptime over ' + uptime.checks24h + ' checks in 24h' : ''));
     });
     $('brainChecks').replaceChildren(...lines.map(function(line){
       var row = document.createElement('li'); row.textContent = line; return row;

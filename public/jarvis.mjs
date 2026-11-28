@@ -214,7 +214,10 @@ export function createJarvisPanel({ key, filters, brainHealth, openBrain, draftM
       node('p', {}, 'Primary ' + models.primary + ' · Backup ' + models.backup),
       node('p', {}, models.active ? 'Last successful model in this instance: ' + models.active : 'No successful request recorded in this instance.'),
       models.lastFailure && node('p', {}, (models.lastFailure.status ? 'HTTP ' + models.lastFailure.status : 'Connection failure') + ' · ' + new Date(models.lastFailure.at).toLocaleString()),
-      models.retryAt && node('p', {}, 'Primary retry after ' + new Date(models.retryAt).toLocaleString()));
+      models.retryAt && node('p', {}, 'Primary retry after ' + new Date(models.retryAt).toLocaleString()),
+      models.events?.length && node('ul', {}, ...models.events.map(event => node('li', {},
+        new Date(event.at).toLocaleString() + ' · ' + event.type + ' · ' + event.model +
+        (event.status ? ' · HTTP ' + event.status : '')))));
   });
 
   const sphere = node('section', { className: 'jarvis-topics', ariaLabel: 'JARVIS topic sphere' });
